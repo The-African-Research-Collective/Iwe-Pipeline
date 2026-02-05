@@ -1,0 +1,49 @@
+# Pipeline configuration for Postprocess + Quality stage
+# This pipeline: OCR Index → Postprocess → Quality Score → Final
+
+name: "postprocess_quality"
+description: "Clean OCR output and score document quality"
+
+# Input
+input:
+  type: "jsonl"
+  index_dir: "./data/ocr_index"
+  glob_pattern: "*.jsonl.gz"
+
+# Postprocessing blocks (order matters)
+postprocess:
+  - type: "language_tag"
+    backend: "glotlid"
+    threshold: 0.5
+
+  - type: "normalize"
+    fix_unicode: true
+    normalize_whitespace: true
+
+  - type: "boilerplate"
+    remove_headers: true
+    remove_footers: true
+    min_text_length: 100
+
+  - type: "tables"
+    detect: true
+    format: true
+
+# Quality scoring
+quality:
+  enabled: true
+  model: "bert-base-multilingual-cased"
+  threshold: 0.5
+  filter_low_quality: false  # Set true to filter out low-quality docs
+
+# Output
+output:
+  dir: "./data/final"
+  format: "parquet"
+  partition_by: "language"
+
+# Executor
+executor:
+  tasks: 8
+  workers: 4
+  resume: true

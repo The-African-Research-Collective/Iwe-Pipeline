@@ -1,0 +1,66 @@
+# Local single-machine configuration for Iwe-Pipeline
+# Default paths and settings for running on consumer hardware
+
+# Data directories
+data:
+  base_dir: "./data"
+  fetched: "./data/fetched"
+  ocr_extracted: "./data/ocr_extracted"
+  ocr_index: "./data/ocr_index"
+  postprocessed: "./data/postprocessed"
+  quality_scored: "./data/quality_scored"
+  final: "./data/final"
+
+# Azure Blob Storage
+azure:
+  container_name: ${AZURE_CONTAINER_NAME}
+  connection_string: ${AZURE_CONNECTION_STRING}
+  blob_prefix: ""
+  manifest_path: "./manifests/azure_blobs.jsonl"
+
+# OCR settings
+ocr:
+  model: "taresco/KarantaOCR"
+  server_type: "vllm"  # vllm, exo, ollama
+  server_url: "http://localhost:8000"
+  device: "cuda"  # cuda, mps, cpu
+  mode: "document"  # document or page
+  batch_size: 1
+  timeout: 600
+  max_concurrent: 50
+
+# Postprocessing
+postprocessing:
+  language:
+    backend: "glotlid"
+    threshold: 0.5
+  normalize:
+    fix_unicode: true
+    normalize_whitespace: true
+  boilerplate:
+    remove_headers: true
+    remove_footers: true
+    min_text_length: 100
+  tables:
+    detect: true
+    format: true
+
+# Quality scoring
+quality:
+  model: "bert-base-multilingual-cased"
+  threshold: 0.5
+  chunk_size: 512
+  batch_size: 256
+
+# HuggingFace Hub
+hub:
+  token: ${HF_TOKEN}
+  repo: "username/dataset-name"
+  private: true
+
+# Executor settings
+executor:
+  tasks: 1
+  workers: 1
+  logging_dir: "./logs"
+  resume: true

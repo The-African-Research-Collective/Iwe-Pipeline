@@ -1,0 +1,69 @@
+[project]
+name = "iwe-pipeline"
+version = "0.1.0"
+description = "DataTrove-native OCR pipeline for processing documents using consumer hardware"
+readme = "README.md"
+authors = [
+    { name = "Ogundepo Odunayo", email = "ogundepoodunayo@gmail.com" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "datatrove>=0.8.0",
+    "azure-storage-blob>=12.0.0",
+    "pyyaml>=6.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=8.0.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.21.0",
+    "ruff>=0.1.0",
+]
+
+vllm = [
+    "vllm>=0.6.0",
+]
+
+exo = [
+    "exo>=0.1.0",
+]
+
+ollama = [
+    "ollama>=0.1.0",
+]
+
+mlx = [
+    "mlx>=0.1.0",
+    "mlx-lm>=0.1.0",
+]
+
+all = [
+    "iwe-pipeline[vllm,exo,ollama,mlx]",
+]
+
+[project.scripts]
+iwe-pipeline = "iwe_pipeline:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+asyncio_mode = "auto"
+
+# Bandit security checker configuration
+[tool.bandit]
+exclude_dirs = ["tests", ".venv", "venv"]
+skips = ["B101", "B601"]

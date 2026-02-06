@@ -231,3 +231,4 @@ manifests/*.csv
 !manifests/.gitkeep
 
 .claude/
+test_pdfs/

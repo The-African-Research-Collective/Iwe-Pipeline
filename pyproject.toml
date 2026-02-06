@@ -11,6 +11,8 @@ dependencies = [
     "datatrove>=0.8.0",
     "azure-storage-blob>=12.0.0",
     "pyyaml>=6.0.0",
+    "orjson>=3.11.7",
+    "pypdf>=6.6.2",
 ]
 
 [project.optional-dependencies]

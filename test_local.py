@@ -14,11 +14,17 @@ from pathlib import Path
 
 from datatrove.data import Document
 from datatrove.executor.local import LocalPipelineExecutor
+from datatrove.pipeline.inference.run_inference import (
+    InferenceConfig,
+    InferenceRunner,
+)
 from datatrove.pipeline.readers.base import BaseReader
+from datatrove.pipeline.writers import JsonlWriter
 
 # Import actual pipeline components
 from iwe_pipeline.blocks.ocr.split_pages import SplitPages
 from iwe_pipeline.datamodel.ids import generate_doc_id
+from iwe_pipeline.utils.utils import rollout_postprocess
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
@@ -69,12 +75,30 @@ class LocalPDFReader(BaseReader):
             )
 
 
-def build_pipeline(output_dir: str, server_url: str = "http://localhost:8000"):
+def build_pipeline(output_dir: str, server_url: str = "http://localhost:8000/v1"):
     """
     Build full pipeline including OCR (requires inference server).
     """
     pipeline = [
         SplitPages(),
+        InferenceRunner(
+            rollout_fn=rollout_postprocess,
+            config=InferenceConfig(
+                model_name_or_path="taresco/KarantaOCR",
+                default_generation_params={"temperature": 0.0},
+                max_concurrent_generations=2,
+                server_type="endpoint",
+                metric_interval=100,
+                endpoint_url=server_url,
+            ),
+            output_writer=JsonlWriter(
+                output_folder=output_dir,
+            ),
+            shared_context={
+                "model_name_or_path": "taresco/KarantaOCR",
+                "max_tokens": 8192,
+            },
+        ),
     ]
 
     return pipeline

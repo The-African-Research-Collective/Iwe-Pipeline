@@ -1,385 +1,177 @@
 # Iwe-Pipeline
 
-DataTrove-native OCR pipeline for processing documents using consumer hardware.
+DataTrove-native OCR pipeline for processing documents with local or server-backed vision models.
 
 ## Overview
 
-Iwe-Pipeline is a modular, scalable OCR processing pipeline built on [DataTrove](https://github.com/huggingface/datatrove). It fetches PDFs from Azure Blob Storage, extracts text using vision-language models (KarantaOCR), performs intelligent postprocessing, scores quality, and publishes to HuggingFace datasets.
+Iwe-Pipeline is a modular OCR pipeline built around DataTrove pipelines and inference runners. The current codebase focuses on:
 
-### Key Features
+- Azure manifest-driven ingestion
+- Fetching PDFs from Azure Blob Storage
+- Optional page splitting for page-level OCR
+- OCR via a server-backed inference endpoint (vLLM-compatible)
+- Postprocessing, table cleanup, and quality scoring
+- Writing intermediate OCR index and final datasets
 
-- **DataTrove-Native**: Built as composable pipeline blocks
-- **Multi-Backend OCR**: Supports vLLM, Exo, Ollama, and MLX
-- **Manifest-First**: Reproducible, shardable processing
-- **Consumer Hardware**: Optimized for GPUs and Apple Silicon
-- **Quality-Focused**: BERT-based quality scoring and filtering
-- **Production-Ready**: Caching, retry logic, monitoring
+Some components are scaffolding and are marked as TODO in code (e.g., pipeline builders and server lifecycle management). The local test runner demonstrates the current end-to-end flow against a running inference server.
 
-## Quick Start
+## Quick Start (Local Test)
 
-### Installation
+### Install
 
 ```bash
-# Clone repository
-git clone <repository-url>
-cd Iwe-Pipeline
-
-# Install with uv
 uv pip install -e .
-
-# Install inference backend (choose one)
-uv pip install -e ".[vllm]"    # GPU (NVIDIA)
-uv pip install -e ".[mlx]"     # Apple Silicon
-uv pip install -e ".[ollama]"  # Local
-uv pip install -e ".[exo]"     # Distributed
 ```
 
-### Configuration
+### Run a local test
+
+1. Start your OCR inference server (OpenAI-compatible chat/completions endpoint).
+2. Run the local pipeline on PDFs.
 
 ```bash
-# Copy environment template
-cp .env.example .env
-
-# Edit with your credentials
-export AZURE_CONNECTION_STRING="..."
-export HF_TOKEN="hf_..."
+python test_local.py --input-dir ./test_pdfs --output-dir ./test_output --server-url http://localhost:8000
 ```
 
-### Running the Pipeline
+This runs:
 
-#### Step 1: Create Manifest
+- `LocalPDFReader`
+- `SplitPages`
+- `InferenceRunner` with `rollout_postprocess`
+- `JsonlWriter`
 
-```bash
-python scripts/make_manifest.py \
-    --container mycontainer \
-    --prefix pdfs/ \
-    --output manifests/azure_blobs.jsonl
-```
+Outputs are written to `test_output/`.
 
-#### Step 2: Fetch + OCR
+## Pipeline Flow (Current)
 
-```bash
-python scripts/run_fetch_ocr.py \
-    --config configs/stages/fetch_ocr.yaml \
-    --start-server
-```
-
-#### Step 3: Postprocess + Quality
-
-```bash
-python scripts/run_postprocess.py \
-    --config configs/stages/postprocess_quality.yaml
-```
-
-#### Step 4: Publish to Hub
-
-```bash
-python scripts/run_publish.py \
-    --config configs/hf_dataset.yaml \
-    --data-dir data/final
-```
-
-## Architecture
-
-### Pipeline Flow
+Local test pipeline:
 
 ```
-Azure Blob Storage
-    ↓
-Manifest (JSONL)
-    ↓
-[Pipeline 1: Fetch + OCR]
-    ├─ AzureManifestReader
-    ├─ AzureFetchPDF → ./data/fetched/
-    ├─ (Optional) SplitPages
-    ├─ KarantaVLLMOCR
-    └─ OCRIndexWriter → ./data/ocr_index/
-    ↓
-[Pipeline 2: Postprocess + Quality]
-    ├─ JsonlReader
-    ├─ (Optional) GroupPages
-    ├─ LanguageTag
-    ├─ Normalize
-    ├─ BoilerplateRemover
-    ├─ TableCleaner
-    ├─ BertQualityScore
-    └─ FinalWriter → ./data/final/
-    ↓
-[Pipeline 3: Publish]
-    └─ HuggingFace Hub
+Local PDFs
+  -> SplitPages (PDF -> per-page images)
+  -> InferenceRunner (server-backed OCR)
+  -> JsonlWriter (OCR output)
 ```
 
-### Project Structure
+Configured multi-stage pipeline (scaffolding in `scripts/`):
+
+```
+Azure Manifest
+  -> AzureFetchPDF
+  -> (optional) SplitPages
+  -> InferenceRunner (server-backed OCR)
+  -> OCRIndexWriter
+  -> Postprocess + Quality blocks
+  -> FinalWriter
+```
+
+## Project Structure
 
 ```
 iwe-pipeline/
-├── configs/                     # YAML configurations
-│   ├── local.yaml              # Machine settings
-│   ├── stages/                 # Pipeline configs
+├── configs/
+│   ├── local.yaml
+│   ├── stages/
 │   │   ├── fetch_ocr.yaml
 │   │   └── postprocess_quality.yaml
-│   └── hf_dataset.yaml         # Hub dataset config
+│   └── hf_dataset.yaml
 │
-├── scripts/                     # Pipeline entrypoints
-│   ├── make_manifest.py        # Create blob manifest
-│   ├── run_fetch_ocr.py        # Fetch + OCR pipeline
-│   ├── run_postprocess.py      # Postprocess + quality
-│   └── run_publish.py          # Publish to hub
+├── scripts/
+│   ├── make_manifest.py
+│   ├── run_fetch_ocr.py
+│   ├── run_postprocess.py
+│   └── run_publish.py
 │
-├── iwe_pipeline/                # Core library
-│   ├── datamodel/              # Schemas and conventions
-│   │   ├── doc_schema.py       # Metadata field definitions
-│   │   └── ids.py              # ID generation utilities
-│   │
-│   ├── readers/                # DataTrove readers
-│   │   ├── azure_manifest_reader.py
-│   │   └── azure_blob.py
-│   │
-│   ├── blocks/                 # DataTrove pipeline blocks
+├── iwe_pipeline/
+│   ├── blocks/
+│   │   ├── assemble/
+│   │   │   └── group_pages.py
 │   │   ├── fetch/
 │   │   │   └── azure_fetch_pdf.py
 │   │   ├── ocr/
-│   │   │   ├── split_pages.py
-│   │   │   └── karanta_vllm_ocr.py
+│   │   │   └── split_pages.py
 │   │   ├── postprocess/
+│   │   │   ├── boilerplate.py
 │   │   │   ├── language_tag.py
 │   │   │   ├── normalize.py
-│   │   │   ├── boilerplate.py
 │   │   │   └── tables.py
-│   │   ├── quality/
-│   │   │   └── bert_score.py
-│   │   └── assemble/
-│   │       └── group_pages.py
+│   │   └── quality/
+│   │       └── bert_score.py
 │   │
-│   ├── writers/                # DataTrove writers
-│   │   ├── ocr_index_writer.py
-│   │   └── final_writer.py
+│   ├── datamodel/
+│   │   ├── doc_schema.py
+│   │   └── ids.py
 │   │
-│   ├── server/                 # Inference server managers
-│   │   ├── manager.py
-│   │   ├── vllm_server.py
-│   │   └── exo_server.py
-│   │
-│   ├── monitoring/             # Metrics & tracking
+│   ├── monitoring/
 │   │   └── tracker.py
 │   │
-│   └── utils/                  # Shared utilities
-│       ├── io.py
-│       ├── retry.py
-│       └── text.py
+│   ├── readers/
+│   │   └── azure_manifest_reader.py
+│   │
+│   ├── server/
+│   │   └── manager.py
+│   │
+│   ├── utils/
+│   │   ├── io.py
+│   │   ├── retry.py
+│   │   ├── text.py
+│   │   └── utils.py
+│   │
+│   └── writers/
+│       ├── final_writer.py
+│       └── ocr_index_writer.py
 │
-├── tests/                      # Test suite
-│   ├── test_blocks_fetch.py
-│   ├── test_blocks_ocr.py
-│   ├── test_blocks_postprocess.py
-│   ├── test_blocks_quality.py
-│   └── test_pipelines_smoke.py
-│
-└── data/                       # Data directories (gitignored)
-    ├── fetched/
-    ├── ocr_extracted/
-    ├── ocr_index/             # Intermediate contract
-    ├── postprocessed/
-    ├── quality_scored/
-    └── final/
+├── test_local.py
+├── tests/
+└── data/ (gitignored)
 ```
 
-## DataTrove Integration
+## Notable Components
 
-All pipeline components extend DataTrove base classes:
+Readers:
 
-- **Readers**: `BaseReader` - Yield `Document` objects from sources
-- **Blocks**: `PipelineStep` - Transform/filter/enrich documents
-- **Writers**: `JsonlWriter`, `ParquetWriter` - Persist results
-- **Executor**: `LocalPipelineExecutor` - Run with parallelism
+- `AzureManifestReader` reads JSONL/CSV manifests for reproducible ingestion.
 
-### Document Schema
+Blocks:
 
-Documents flow through the pipeline as DataTrove `Document` objects:
+- `AzureFetchPDF` downloads PDFs and stores local paths.
+- `SplitPages` converts a PDF into page-level images for OCR.
+- Postprocess blocks handle language tagging, normalization, boilerplate removal, and table cleanup.
+- `BertQualityScore` computes a quality score.
+- `GroupPages` merges page-level outputs into document-level output.
 
-```python
-Document(
-    id="abc123",                 # Unique identifier
-    text="extracted text...",    # Main content
-    metadata={                   # Structured metadata
-        "source": {...},
-        "ocr": {...},
-        "language": "eng_Latn",
-        "quality_score": 0.85,
-    },
-    media=[...]                  # PDF bytes, images, etc.
-)
-```
+Writers:
 
-## Pipeline Blocks
+- `OCRIndexWriter` writes intermediate OCR results.
+- `FinalWriter` writes final datasets (Parquet writer wrapper).
 
-### Fetch
+Inference:
 
-- **AzureFetchPDF**: Downloads PDFs from Azure Blob Storage
-  - Caches based on etag
-  - Adds local file path to metadata
-  - Retry logic for transient failures
+- `rollout_postprocess` (in `iwe_pipeline/utils/utils.py`) builds OpenAI-compatible multimodal messages for inference.
+- `InferenceRunner` (DataTrove) sends requests to the configured endpoint.
 
-### OCR
+## Scripts and Status
 
-- **SplitPages**: Converts PDF into page-level documents (optional)
-- **KarantaVLLMOCR**: Extracts text using KarantaOCR via vLLM
-  - Supports document-level and page-level modes
-  - Concurrent request handling
-  - Timeout management
+The scripts in `scripts/` define the intended multi-stage pipeline, but some functions are currently placeholders:
 
-### Postprocess
+- `load_config` and `build_pipeline` in `run_fetch_ocr.py` and `run_postprocess.py` are TODO.
+- `ServerManager` in `iwe_pipeline/server/manager.py` is a stub.
 
-- **LanguageTag**: Identifies document language (GlotLID/fastText)
-- **Normalize**: Unicode fixes, whitespace cleanup, ligature expansion
-- **BoilerplateRemover**: Removes headers, footers, page numbers
-- **TableCleaner**: Detects and formats tables
+Use `test_local.py` as the working reference for an end-to-end run.
 
-### Quality
+## Environment
 
-- **BertQualityScore**: Scores document quality using BERT classifiers
-  - Chunks documents for processing
-  - Aggregates scores
-  - Optional low-quality filtering
-
-### Assemble
-
-- **GroupPages**: Reassembles pages back into documents
-
-## Configuration
-
-### Local Settings (`configs/local.yaml`)
-
-Machine-specific settings: paths, workers, Azure credentials, etc.
-
-### Pipeline Configs (`configs/stages/`)
-
-Pipeline-specific settings:
-- Input/output paths
-- Block parameters
-- Executor configuration
-
-### Dataset Config (`configs/hf_dataset.yaml`)
-
-HuggingFace Hub dataset metadata and schema.
-
-## Development
-
-### Running Tests
+Copy `.env.example` and set credentials as needed:
 
 ```bash
-# All tests
+cp .env.example .env
+```
+
+## Tests
+
+```bash
 pytest
-
-# With coverage
-pytest --cov=iwe_pipeline
-
-# Specific module
-pytest tests/test_blocks_ocr.py -v
 ```
-
-### Adding New Blocks
-
-1. Create file in `iwe_pipeline/blocks/<category>/`
-2. Extend `PipelineStep`
-3. Implement `run()` method
-4. Add tests
-5. Update pipeline configs
-
-Example:
-
-```python
-from datatrove.pipeline.base import PipelineStep
-from datatrove.data import Document
-
-class MyBlock(PipelineStep):
-    name = "✨ My Block"
-    type = "🔨 PROCESSOR"
-    
-    def run(self, data: Document, rank=0, world_size=1):
-        # Transform document
-        data.text = self.process(data.text)
-        yield data
-```
-
-### Code Style
-
-```bash
-# Lint
-ruff check .
-
-# Format
-ruff format .
-
-# Fix
-ruff check --fix .
-```
-
-## Deployment
-
-### Single Machine
-
-Use `LocalPipelineExecutor` with multiple tasks/workers:
-
-```python
-executor = LocalPipelineExecutor(
-    pipeline=pipeline,
-    tasks=8,      # Number of parallel tasks
-    workers=4,    # Workers per task
-)
-```
-
-### Distributed (Future)
-
-DataTrove supports Ray and Slurm executors for cluster deployment.
-
-## Monitoring
-
-Track pipeline progress:
-
-- DataTrove's built-in `doc_progress`
-- Custom `MetricsTracker` for OCR-specific metrics
-- Logs in `./logs/`
-
-## Troubleshooting
-
-### OCR Server Not Responding
-
-```bash
-# Check server health
-curl http://localhost:8000/health
-
-# Restart server
-python -c "from iwe_pipeline.server.manager import ServerManager; \
-           s = ServerManager(); s.start()"
-```
-
-### Out of Memory
-
-- Reduce `batch_size` in OCR config
-- Reduce `tasks` or `workers` in executor
-- Enable page-level processing (`split_pages: true`)
-
-### Failed Downloads
-
-- Check Azure credentials
-- Increase `max_retries` in fetch config
-- Check blob permissions
-
-## Contributing
-
-See [CONTRIBUTING.md](CONTRIBUTING.md) for guidelines.
 
 ## License
 
-MIT
-
-## Acknowledgments
-
-- [DataTrove](https://github.com/huggingface/datatrove) - Pipeline framework
-- [FinePDFs](https://github.com/huggingface/finepdfs) - Reference implementation
-- [KarantaOCR](https://huggingface.co/taresco/KarantaOCR) - OCR model
-
----
-
-Built with ❤️ for the OCR community
+TBD

@@ -13,6 +13,7 @@ dependencies = [
     "pyyaml>=6.0.0",
     "orjson>=3.11.7",
     "pypdf>=6.6.2",
+    "aiofiles>=25.1.0",
 ]
 
 [project.optional-dependencies]

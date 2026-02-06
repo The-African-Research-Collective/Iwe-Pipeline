@@ -150,7 +150,7 @@ def get_png_dimensions_from_base64(base64_data) -> tuple[int, int]:
 
 
 def build_message(image_base64: bytes, system_prompt: str = SYSTEM_PROMPT):
-    """Format messages in Qwen VL chat format, injecting system prompt and base text."""
+    """Format messages in OpenAI-compatible multimodal chat format."""
 
     prompt = [
         {
@@ -161,8 +161,8 @@ def build_message(image_base64: bytes, system_prompt: str = SYSTEM_PROMPT):
                     "text": system_prompt,
                 },
                 {
-                    "type": "image",
-                    "image": f"data:image/png;base64,{image_base64}",
+                    "type": "image_url",
+                    "image_url": {"url": f"data:image/png;base64,{image_base64}"},
                 },
             ],
         }
@@ -172,28 +172,24 @@ def build_message(image_base64: bytes, system_prompt: str = SYSTEM_PROMPT):
 
 
 def prepare_requests_postprocess(
-    media_bytes: list | None, document: Document, model_name: str, max_tokens: int
+    document: Document, model_name: str, max_tokens: int
 ) -> list[tuple[dict[str, Any], int]]:
     from loguru import logger as _logger  # use local logger if available
 
-    if media_bytes is None:
-        _logger.error("No media bytes or pymupdf missing")
-        return []
-
     requests: list[tuple[dict[str, Any], int]] = []
 
-    for i, page_bytes in document.media:
+    for page_index, page_bytes in enumerate(document.media):
         try:
             requests.append(
-                {
-                    "request": {
-                        "messages": build_message(page_bytes),
+                (
+                    {
+                        "messages": build_message(page_bytes["media_bytes"]),
                         "model": model_name,
                         "temperature": 0.0,
                         "max_tokens": max_tokens,
                     },
-                    "page_index": i,
-                }
+                    page_index,
+                )
             )
 
         except Exception as e:
@@ -208,14 +204,17 @@ async def rollout_postprocess(document: Document, generate: Any, **kwargs) -> An
     import atexit
     from concurrent.futures import ProcessPoolExecutor
 
+    model_name = kwargs.get("model_name_or_path", "taresco/KarantaOCR")
+    max_tokens = kwargs.get("max_tokens", 8192)
+
     if not hasattr(rollout_postprocess, "process_pool"):
         rollout_postprocess.process_pool = ProcessPoolExecutor(max_workers=4)
         atexit.register(rollout_postprocess.process_pool.shutdown)
 
-    from .postprocess_utils import prepare_requests_postprocess as _prep
+    from .utils import prepare_requests_postprocess as _prep
 
     requests_tuple = await asyncio.get_event_loop().run_in_executor(
-        rollout_postprocess.process_pool, _prep, document.media, document
+        rollout_postprocess.process_pool, _prep, document, model_name, max_tokens
     )
     request_ids = [i for _, i in requests_tuple]
     document.metadata["request_page_indices"] = request_ids

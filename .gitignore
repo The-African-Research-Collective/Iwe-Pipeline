@@ -232,3 +232,4 @@ manifests/*.csv
 
 .claude/
 test_pdfs/
+test_output/

@@ -51,7 +51,9 @@ class SplitPages(PipelineStep):
             per_page_bytes = []
             for page in range(1, num_pages + 1):
                 logger.info(f"  Page {page + 1}/{num_pages}")
-                render_pdf_to_base64png(str(document.metadata["source"]["path"]), page_num=page)
+                per_page_bytes.append(
+                    render_pdf_to_base64png(str(document.metadata["source"]["path"]), page_num=page)
+                )
 
             document.media = [
                 {"media_bytes": pdf_bytes, "media_type": "application/pdf"}

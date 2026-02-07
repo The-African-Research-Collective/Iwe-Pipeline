@@ -205,6 +205,8 @@ async def rollout_postprocess(document: Document, generate: Any, **kwargs) -> An
     import atexit
     from concurrent.futures import ProcessPoolExecutor
 
+    from loguru import logger as _logger  # use local logger if available
+
     model_name = kwargs.get("model_name_or_path", "taresco/KarantaOCR")
     max_tokens = kwargs.get("max_tokens", 8192)
 
@@ -233,7 +235,15 @@ async def rollout_postprocess(document: Document, generate: Any, **kwargs) -> An
 
     # Run inference for all relevant pages
     tasks = [generate(request) for request, _ in requests_tuple]
-    results = await asyncio.gather(*tasks)
+    # Allow individual request failures without crashing the whole pipeline.
+    raw_results = await asyncio.gather(*tasks, return_exceptions=True)
+    results = []
+    for result in raw_results:
+        if isinstance(result, Exception):
+            _logger.error(f"Inference request failed: {result}")
+            results.append({"text": "", "error": str(result)})
+        else:
+            results.append(result)
 
     # Store results in metadata for postprocess_postprocess
     document.metadata["inference_results"] = results

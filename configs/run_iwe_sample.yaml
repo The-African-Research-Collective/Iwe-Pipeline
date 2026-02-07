@@ -1,0 +1,24 @@
+# Sample config for run_iwe_pipeline.py
+
+input_dir: "./test_pdfs"
+output_dir: "./test_output"
+limit: -1
+monitor: true
+job_name: "local_test"
+output_filename: "${rank}_${chunk_index}.jsonl"
+
+ocr:
+  server_url: "http://localhost:8000"
+  model_name: "taresco/KarantaOCR"
+  temperature: 0.0
+  max_concurrent: 8
+  max_tokens: 8192
+
+executor:
+  tasks: 1
+  workers: 1
+
+# Optional alternative locations (if you prefer nested data config)
+data:
+  fetched: "./test_pdfs"
+  ocr_extracted: "./test_output"

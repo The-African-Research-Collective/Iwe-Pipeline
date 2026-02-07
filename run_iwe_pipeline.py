@@ -5,7 +5,7 @@ Local Testing Script - Uses Real iwe_pipeline Components
 Test the actual Iwe-Pipeline blocks on local PDFs.
 
 Usage:
-    python test_local.py --input-dir ./test_pdfs --output-dir ./test_output
+    python run_iwe_pipeline.py --config configs/run_iwe_sample.yaml
 """
 
 import argparse
@@ -14,6 +14,7 @@ import threading
 from datetime import UTC, datetime
 from pathlib import Path
 
+import yaml
 from datatrove.data import Document
 from datatrove.executor.local import LocalPipelineExecutor
 from datatrove.pipeline.inference.run_inference import (
@@ -78,29 +79,41 @@ class LocalPDFReader(BaseReader):
             )
 
 
-def build_pipeline(output_dir: str, server_url: str = "http://localhost:8000/v1"):
+def build_pipeline(
+    output_dir: str,
+    server_url: str,
+    *,
+    model_name: str,
+    temperature: float,
+    max_concurrent: int,
+    max_tokens: int,
+    output_filename: str,
+):
     """
     Build full pipeline including OCR (requires inference server).
     """
     pipeline = [
-        SplitPages(),
+        SplitPages(
+            output_dir=output_dir,
+            processed_ids_path=f"{output_dir}/processed_ids.txt",
+        ),
         InferenceRunner(
             rollout_fn=rollout_postprocess,
             config=InferenceConfig(
-                model_name_or_path="taresco/KarantaOCR",
-                default_generation_params={"temperature": 0.0},
-                max_concurrent_generations=2,
+                model_name_or_path=model_name,
+                default_generation_params={"temperature": temperature},
+                max_concurrent_generations=max_concurrent,
                 server_type="endpoint",
                 metric_interval=100,
                 endpoint_url=server_url,
             ),
             output_writer=JsonlWriter(
                 output_folder=output_dir,
-                output_filename="${rank}_${chunk_index}.jsonl",
+                output_filename=output_filename,
             ),
             shared_context={
-                "model_name_or_path": "taresco/KarantaOCR",
-                "max_tokens": 8192,
+                "model_name_or_path": model_name,
+                "max_tokens": max_tokens,
             },
             checkpoints_local_dir=f"{output_dir}/checkpoints",
         ),
@@ -121,33 +134,88 @@ python test_local.py --input-dir test_pdfs
         """,
     )
     parser.add_argument(
-        "--input-dir", type=str, required=True, help="Directory containing PDF files to process"
-    )
-    parser.add_argument(
-        "--output-dir", type=str, default="./test_output", help="Directory for output files"
-    )
-
-    parser.add_argument(
-        "--server-url",
+        "--config",
         type=str,
-        default="http://localhost:8000",
-        help="OCR inference server URL (for full/page-level modes)",
+        default="configs/run_iwe_sample.yaml",
+        help="Path to config file in configs/ directory",
     )
-
-    parser.add_argument(
-        "--limit", type=int, default=-1, help="Limit number of PDFs to process (-1 for all)"
-    )
-
-    parser.add_argument("--tasks", type=int, default=1, help="Number of parallel tasks")
-
-    parser.add_argument("--workers", type=int, default=1, help="Number of workers per task")
-    parser.add_argument("--monitor", action="store_true", help="Enable inference progress monitor")
-    parser.add_argument("--job-name", type=str, default="local_test", help="Job name for logging")
 
     args = parser.parse_args()
 
+    config_path = Path(args.config)
+    if not config_path.exists():
+        logger.error(f"Config file not found: {config_path}")
+        return 1
+
+    with config_path.open("rt", encoding="utf-8") as handle:
+        config = yaml.safe_load(handle) or {}
+
+    data_cfg = config.get("data", {})
+    ocr_cfg = config.get("ocr", {})
+    executor_cfg = config.get("executor", {})
+
+    input_dir_value = config.get("input_dir") or data_cfg.get("fetched")
+    output_dir_value = config.get("output_dir") or data_cfg.get("ocr_extracted")
+    server_url = ocr_cfg.get("server_url")
+    limit = config.get("limit")
+    tasks = executor_cfg.get("tasks")
+    workers = executor_cfg.get("workers")
+    monitor = config.get("monitor")
+    job_name = config.get("job_name")
+    max_concurrent = ocr_cfg.get("max_concurrent")
+    max_tokens = ocr_cfg.get("max_tokens")
+    model_name = ocr_cfg.get("model_name")
+    temperature = ocr_cfg.get("temperature")
+    output_filename = config.get("output_filename")
+
+    missing = []
+    if not input_dir_value:
+        missing.append("input_dir or data.fetched")
+    if not output_dir_value:
+        missing.append("output_dir or data.ocr_extracted")
+    if not server_url:
+        missing.append("ocr.server_url")
+    if tasks is None:
+        missing.append("executor.tasks")
+    if workers is None:
+        missing.append("executor.workers")
+    if limit is None:
+        missing.append("limit")
+    if monitor is None:
+        missing.append("monitor")
+    if not job_name:
+        missing.append("job_name")
+    if max_concurrent is None:
+        missing.append("ocr.max_concurrent")
+    if max_tokens is None:
+        missing.append("ocr.max_tokens")
+    if not model_name:
+        missing.append("ocr.model_name")
+    if temperature is None:
+        missing.append("ocr.temperature")
+    if not output_filename:
+        missing.append("output_filename")
+
+    if missing:
+        logger.error("Missing required config values: " + ", ".join(missing))
+        return 1
+
+    input_dir = Path(input_dir_value)
+    output_dir = Path(output_dir_value)
+    if not server_url.endswith("/v1"):
+        server_url = server_url.rstrip("/") + "/v1"
+    limit = int(limit)
+    tasks = int(tasks)
+    workers = int(workers)
+    monitor = bool(monitor)
+    job_name = str(job_name)
+    max_concurrent = int(max_concurrent)
+    max_tokens = int(max_tokens)
+    model_name = str(model_name)
+    temperature = float(temperature)
+    output_filename = str(output_filename)
+
     # Validate input directory
-    input_dir = Path(args.input_dir)
     if not input_dir.exists():
         logger.error(f"Input directory does not exist: {input_dir}")
         logger.info(f"Create it with: mkdir -p {input_dir}")
@@ -163,14 +231,22 @@ python test_local.py --input-dir test_pdfs
     logger.info("Iwe-Pipeline: Local Test with Real Components")
     logger.info("=" * 80)
     logger.info(f"Input: {input_dir} ({len(pdf_files)} PDFs)")
-    logger.info(f"Output: {args.output_dir}")
-    logger.info(f"Tasks: {args.tasks}, Workers: {args.workers}")
+    logger.info(f"Output: {output_dir}")
+    logger.info(f"Tasks: {tasks}, Workers: {workers}")
 
-    logger.info(f"Building page-level pipeline with OCR server at {args.server_url}")
-    pipeline_blocks = build_pipeline(args.output_dir, args.server_url)
+    logger.info(f"Building page-level pipeline with OCR server at {server_url}")
+    pipeline_blocks = build_pipeline(
+        str(output_dir),
+        server_url,
+        model_name=model_name,
+        temperature=temperature,
+        max_concurrent=max_concurrent,
+        max_tokens=max_tokens,
+        output_filename=output_filename,
+    )
 
     # Create reader
-    reader = LocalPDFReader(input_dir=str(input_dir), limit=args.limit)
+    reader = LocalPDFReader(input_dir=str(input_dir), limit=limit)
 
     # Full pipeline
     pipeline = [reader] + pipeline_blocks
@@ -178,12 +254,12 @@ python test_local.py --input-dir test_pdfs
     logger.info("=" * 80)
 
     run_id = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    run_dir = f"./logs/{args.job_name}_run_{run_id}"
+    run_dir = f"./logs/{job_name}_run_{run_id}"
 
     def run_monitor():
         monitor_pipeline = [
             OCRInferenceProgressMonitor(
-                output_dir=args.output_dir,
+                output_dir=str(output_dir),
                 input_dir=str(input_dir),
                 page_level=True,
                 port=8040,
@@ -204,14 +280,14 @@ python test_local.py --input-dir test_pdfs
     # Execute with LocalPipelineExecutor
     try:
         monitor_thread = None
-        if args.monitor:
+        if monitor:
             monitor_thread = threading.Thread(target=run_monitor, name="ocr-monitor")
             monitor_thread.start()
 
         executor = LocalPipelineExecutor(
             pipeline=pipeline,
-            tasks=args.tasks,
-            workers=args.workers,
+            tasks=tasks,
+            workers=workers,
             logging_dir=run_dir,
         )
 
@@ -219,7 +295,7 @@ python test_local.py --input-dir test_pdfs
 
         logger.info("=" * 80)
         logger.info("✓ Pipeline completed successfully!")
-        logger.info(f"✓ Output: {args.output_dir}/output_*.jsonl.gz")
+        logger.info(f"✓ Output: {output_dir}/output_*.jsonl.gz")
         logger.info("=" * 80)
 
         if monitor_thread is not None:

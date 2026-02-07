@@ -1,4 +1,5 @@
 import base64
+import json
 import subprocess
 from typing import Any
 
@@ -218,6 +219,17 @@ async def rollout_postprocess(document: Document, generate: Any, **kwargs) -> An
     )
     request_ids = [i for _, i in requests_tuple]
     document.metadata["request_page_indices"] = request_ids
+    request_payload_max_chars = kwargs.get("request_payload_max_chars", 1200)
+    request_previews: list[str] = []
+    for request, _ in requests_tuple:
+        try:
+            preview = json.dumps(request, ensure_ascii=False)
+        except TypeError:
+            preview = str(request)
+        if request_payload_max_chars and len(preview) > request_payload_max_chars:
+            preview = preview[:request_payload_max_chars] + f"... (truncated, {len(preview)} chars)"
+        request_previews.append(preview)
+    document.metadata["request_payloads"] = request_previews
 
     # Run inference for all relevant pages
     tasks = [generate(request) for request, _ in requests_tuple]

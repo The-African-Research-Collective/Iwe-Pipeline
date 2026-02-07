@@ -10,6 +10,8 @@ Usage:
 
 import argparse
 import logging
+import threading
+from datetime import UTC, datetime
 from pathlib import Path
 
 from datatrove.data import Document
@@ -24,6 +26,7 @@ from datatrove.pipeline.writers import JsonlWriter
 # Import actual pipeline components
 from iwe_pipeline.blocks.ocr.split_pages import SplitPages
 from iwe_pipeline.datamodel.ids import generate_doc_id
+from iwe_pipeline.monitoring.tracker import OCRInferenceProgressMonitor
 from iwe_pipeline.utils.utils import rollout_postprocess
 
 logging.basicConfig(
@@ -93,11 +96,13 @@ def build_pipeline(output_dir: str, server_url: str = "http://localhost:8000/v1"
             ),
             output_writer=JsonlWriter(
                 output_folder=output_dir,
+                output_filename="${rank}_${chunk_index}.jsonl",
             ),
             shared_context={
                 "model_name_or_path": "taresco/KarantaOCR",
                 "max_tokens": 8192,
             },
+            checkpoints_local_dir=f"{output_dir}/checkpoints",
         ),
     ]
 
@@ -136,6 +141,8 @@ python test_local.py --input-dir test_pdfs
     parser.add_argument("--tasks", type=int, default=1, help="Number of parallel tasks")
 
     parser.add_argument("--workers", type=int, default=1, help="Number of workers per task")
+    parser.add_argument("--monitor", action="store_true", help="Enable inference progress monitor")
+    parser.add_argument("--job-name", type=str, default="local_test", help="Job name for logging")
 
     args = parser.parse_args()
 
@@ -170,13 +177,42 @@ python test_local.py --input-dir test_pdfs
 
     logger.info("=" * 80)
 
+    run_id = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
+    run_dir = f"./logs/{args.job_name}_run_{run_id}"
+
+    def run_monitor():
+        monitor_pipeline = [
+            OCRInferenceProgressMonitor(
+                output_dir=args.output_dir,
+                input_dir=str(input_dir),
+                page_level=True,
+                port=8040,
+                update_interval=5,
+                stats_path=f"{run_dir}/stats.json",
+            )
+        ]
+
+        monitor_executor = LocalPipelineExecutor(
+            pipeline=monitor_pipeline,
+            tasks=1,
+            workers=1,
+            logging_dir=f"{run_dir}_monitor",
+        )
+        monitor_executor.run()
+        logger.info("✓ OCR progress monitor stopped.")
+
     # Execute with LocalPipelineExecutor
     try:
+        monitor_thread = None
+        if args.monitor:
+            monitor_thread = threading.Thread(target=run_monitor, name="ocr-monitor")
+            monitor_thread.start()
+
         executor = LocalPipelineExecutor(
             pipeline=pipeline,
             tasks=args.tasks,
             workers=args.workers,
-            logging_dir="./logs/test_local",
+            logging_dir=run_dir,
         )
 
         executor.run()
@@ -185,6 +221,9 @@ python test_local.py --input-dir test_pdfs
         logger.info("✓ Pipeline completed successfully!")
         logger.info(f"✓ Output: {args.output_dir}/output_*.jsonl.gz")
         logger.info("=" * 80)
+
+        if monitor_thread is not None:
+            monitor_thread.join()
 
         return 0
 

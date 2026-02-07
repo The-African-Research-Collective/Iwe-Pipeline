@@ -1,0 +1,244 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OCR Record Detail</title>
+    <style>
+      :root {
+        --bg: #e9f0df;
+        --card: #ffffff;
+        --ink: #1a1f12;
+        --muted: #4a5a3e;
+        --accent: #6fa043;
+        --accent-dark: #557c34;
+        --accent-light: #dcebc8;
+        --line: #cfe4b2;
+        --shadow: 0 12px 30px rgba(45, 60, 35, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+        background: linear-gradient(180deg, #f7fbf1 0%, #e7efda 100%);
+        color: var(--ink);
+        min-height: 100vh;
+        padding: 24px;
+      }
+
+      .shell {
+        max-width: 1120px;
+        margin: 0 auto;
+        background: var(--card);
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: var(--shadow);
+      }
+
+      .topbar {
+        background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dark) 100%);
+        padding: 14px 20px;
+        color: #f6fbef;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 14px;
+        letter-spacing: 0.3px;
+      }
+
+      .topbar a {
+        color: #f6fbef;
+        text-decoration: none;
+        font-weight: 600;
+      }
+
+      .content {
+        padding: 20px;
+      }
+
+      .header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 4px 10px;
+        border-radius: 999px;
+        font-size: 11px;
+        text-transform: uppercase;
+        background: var(--accent);
+        color: #f6fbef;
+        letter-spacing: 0.4px;
+      }
+
+      .badge.status-success {
+        background: #2b7a3d;
+      }
+
+      .badge.status-error {
+        background: #b5471d;
+      }
+
+      .badge.status-pending {
+        background: #8a8a8a;
+      }
+
+      .detail-grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+        gap: 12px;
+        margin-bottom: 16px;
+      }
+
+      .detail-card {
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 10px 12px;
+        background: #f8fbf1;
+      }
+
+      .detail-card label {
+        display: block;
+        font-size: 10px;
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+        color: var(--muted);
+        margin-bottom: 6px;
+      }
+
+      .detail-section {
+        margin-bottom: 16px;
+      }
+
+      .detail-section h3 {
+        font-size: 13px;
+        margin-bottom: 6px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.6px;
+      }
+
+      pre {
+        margin: 0;
+        padding: 12px;
+        background: #f3f9ea;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        font-size: 12px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+        max-height: 420px;
+        overflow: auto;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="topbar">
+        <div>IWE OCR Monitor</div>
+        <a href="/">Back to list</a>
+      </div>
+
+      <div class="content">
+        <div class="header">
+          <div>
+            <h2 id="docId">Record</h2>
+            <div id="pageInfo"></div>
+          </div>
+          <span class="badge" id="statusBadge">status</span>
+        </div>
+
+        <div class="detail-grid">
+          <div class="detail-card">
+            <label>Timestamp</label>
+            <div id="timestamp">-</div>
+          </div>
+          <div class="detail-card">
+            <label>Status</label>
+            <div id="statusText">-</div>
+          </div>
+          <div class="detail-card">
+            <label>Doc ID</label>
+            <div id="docIdText">-</div>
+          </div>
+          <div class="detail-card">
+            <label>Page Index</label>
+            <div id="pageIndex">-</div>
+          </div>
+        </div>
+
+        <div class="detail-section">
+          <h3>Request Payload (Truncated)</h3>
+          <pre id="requestPayload"></pre>
+        </div>
+
+        <div class="detail-section">
+          <h3>Model Output</h3>
+          <pre id="modelOutput"></pre>
+        </div>
+
+        <div class="detail-section">
+          <h3>Error</h3>
+          <pre id="error"></pre>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      function escapeHtml(text) {
+        const span = document.createElement("span");
+        span.textContent = text ?? "";
+        return span.innerHTML;
+      }
+
+      function statusClass(status) {
+        if (status === "success") return "status-success";
+        if (status === "error") return "status-error";
+        return "status-pending";
+      }
+
+      async function loadRecord() {
+        const params = new URLSearchParams(window.location.search);
+        const recordId = params.get("record_id");
+        if (!recordId) {
+          document.getElementById("docId").textContent = "Record not found";
+          return;
+        }
+
+        const response = await fetch(`/api/record?record_id=${encodeURIComponent(recordId)}`);
+        if (!response.ok) {
+          document.getElementById("docId").textContent = "Record not found";
+          return;
+        }
+
+        const record = await response.json();
+        document.getElementById("docId").textContent = record.doc_id ?? "";
+        document.getElementById("docIdText").textContent = record.doc_id ?? "";
+        document.getElementById("pageIndex").textContent = record.page_index ?? "";
+        document.getElementById("pageInfo").textContent =
+          `Page ${record.page_index ?? ""} · ${record.timestamp ?? ""}`;
+        document.getElementById("timestamp").textContent = record.timestamp ?? "-";
+        document.getElementById("statusText").textContent = record.status ?? "-";
+
+        const badge = document.getElementById("statusBadge");
+        badge.textContent = record.status ?? "-";
+        badge.className = `badge ${statusClass(record.status)}`;
+
+        document.getElementById("requestPayload").textContent = record.request_payload ?? "";
+        document.getElementById("modelOutput").textContent = record.model_output ?? "";
+        document.getElementById("error").textContent = record.error ?? "";
+      }
+
+      loadRecord();
+    </script>
+  </body>
+</html>

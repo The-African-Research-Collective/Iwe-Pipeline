@@ -45,19 +45,26 @@ class SplitPages(PipelineStep):
         """
         # Get number of pages
         for document in data:
-            num_pages = get_pdf_num_pages(str(document.metadata["source"]["path"]))
+            pdf_path = str(document.metadata["source"]["path"])
+            num_pages = get_pdf_num_pages(pdf_path)
             logger.info(f"PDF has {num_pages} pages.")
 
-            per_page_bytes = []
             for page in range(1, num_pages + 1):
-                logger.info(f"  Page {page + 1}/{num_pages}")
-                per_page_bytes.append(
-                    render_pdf_to_base64png(str(document.metadata["source"]["path"]), page_num=page)
+                logger.info(f"  Page {page}/{num_pages}")
+                page_bytes = render_pdf_to_base64png(pdf_path, page_num=page)
+
+                page_document = Document(
+                    id=f"{document.id}::p{page:04d}",
+                    text=document.text,
+                    metadata={
+                        **document.metadata,
+                        "source": {
+                            **document.metadata.get("source", {}),
+                            "page": page,
+                            "num_pages": num_pages,
+                        },
+                    },
+                    media=[{"media_bytes": page_bytes, "media_type": "application/pdf"}],
                 )
 
-            document.media = [
-                {"media_bytes": pdf_bytes, "media_type": "application/pdf"}
-                for pdf_bytes in per_page_bytes
-            ]
-
-            yield document
+                yield page_document

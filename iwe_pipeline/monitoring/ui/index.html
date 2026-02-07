@@ -1,0 +1,522 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>OCR Progress Monitor</title>
+    <style>
+      :root {
+        --bg: #e9f0df;
+        --card: #ffffff;
+        --ink: #1a1f12;
+        --muted: #4a5a3e;
+        --accent: #6fa043;
+        --accent-dark: #557c34;
+        --accent-light: #dcebc8;
+        --line: #cfe4b2;
+        --shadow: 0 12px 30px rgba(45, 60, 35, 0.12);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: "Trebuchet MS", "Segoe UI", sans-serif;
+        background: linear-gradient(180deg, #f7fbf1 0%, #e7efda 100%);
+        color: var(--ink);
+        min-height: 100vh;
+        padding: 24px;
+      }
+
+      .shell {
+        max-width: 1120px;
+        margin: 0 auto;
+        background: var(--card);
+        border-radius: 14px;
+        overflow: hidden;
+        box-shadow: var(--shadow);
+      }
+
+      .topbar {
+        background: linear-gradient(180deg, var(--accent) 0%, var(--accent-dark) 100%);
+        padding: 14px 20px;
+        color: #f6fbef;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        font-size: 14px;
+        letter-spacing: 0.3px;
+      }
+
+      .brand {
+        font-weight: 700;
+        font-size: 16px;
+      }
+
+      .nav {
+        display: flex;
+        gap: 16px;
+        font-size: 13px;
+        opacity: 0.9;
+      }
+
+      .content {
+        padding: 18px 20px 26px;
+      }
+
+      .toolbar {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        margin-bottom: 14px;
+        gap: 12px;
+      }
+
+      .toolbar input {
+        border: 1px solid var(--line);
+        padding: 6px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        font-size: 13px;
+      }
+
+      thead {
+        background: #f3f9ea;
+        color: var(--muted);
+        text-transform: uppercase;
+        font-size: 11px;
+        letter-spacing: 0.6px;
+      }
+
+      th,
+      td {
+        padding: 10px 12px;
+        border: 1px solid var(--line);
+        text-align: left;
+      }
+
+      tbody tr:nth-child(even) {
+        background: #f6fbea;
+      }
+
+      .badge {
+        display: inline-block;
+        padding: 2px 8px;
+        border-radius: 999px;
+        font-size: 11px;
+        text-transform: uppercase;
+        background: var(--accent);
+        color: #f6fbef;
+        letter-spacing: 0.4px;
+      }
+
+      .badge.status-success {
+        background: #2b7a3d;
+      }
+
+      .badge.status-error {
+        background: #b5471d;
+      }
+
+      .badge.status-pending {
+        background: #8a8a8a;
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--accent);
+        display: inline-block;
+      }
+
+      .progress-wrap {
+        margin-top: 14px;
+        display: grid;
+        gap: 6px;
+      }
+
+      .progress-bar {
+        position: relative;
+        width: 100%;
+        height: 12px;
+        background: var(--accent-light);
+        border-radius: 999px;
+        overflow: hidden;
+      }
+
+      .progress-bar span {
+        position: absolute;
+        left: 0;
+        top: 0;
+        height: 100%;
+        background: var(--accent);
+        width: 0%;
+        transition: width 0.6s ease;
+      }
+
+      .paths {
+        margin-top: 14px;
+        font-size: 12px;
+        color: var(--muted);
+        word-break: break-all;
+      }
+
+      .footer {
+        margin-top: 10px;
+        font-size: 12px;
+        color: var(--muted);
+        display: flex;
+        gap: 10px;
+        align-items: center;
+      }
+
+      .records-section {
+        margin-top: 18px;
+      }
+
+      .records-header {
+        font-size: 13px;
+        color: var(--muted);
+        margin-bottom: 8px;
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .records-list {
+        display: grid;
+        gap: 8px;
+      }
+
+      .pager {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        font-size: 12px;
+      }
+
+      .pager button,
+      .pager select {
+        border: 1px solid var(--line);
+        background: #f3f9ea;
+        padding: 4px 8px;
+        border-radius: 6px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .pager button:disabled {
+        cursor: not-allowed;
+        opacity: 0.5;
+      }
+
+      .record-row {
+        display: grid;
+        grid-template-columns: 1.1fr 0.4fr 1.2fr 1.6fr;
+        gap: 12px;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid var(--line);
+        background: #f8fbf1;
+        text-decoration: none;
+        color: inherit;
+      }
+
+      .record-row:hover {
+        background: #eef7dc;
+        border-color: #b7d68e;
+      }
+
+      .record-id {
+        font-size: 12px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .record-meta {
+        font-size: 11px;
+        color: var(--muted);
+        margin-top: 4px;
+      }
+
+      .record-preview {
+        font-size: 11px;
+        color: #2b351f;
+        line-height: 1.4;
+        display: -webkit-box;
+        -webkit-line-clamp: 3;
+        -webkit-box-orient: vertical;
+        overflow: hidden;
+      }
+
+      .record-label {
+        font-size: 10px;
+        color: var(--muted);
+        text-transform: uppercase;
+        letter-spacing: 0.5px;
+        margin-bottom: 4px;
+      }
+
+      @media (max-width: 900px) {
+        .record-row {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <div class="topbar">
+        <div class="brand">IWE OCR Monitor</div>
+        <div class="nav">
+          <span>Dashboard</span>
+          <span>Tasks</span>
+          <span>Workers</span>
+          <span>Monitor</span>
+        </div>
+      </div>
+
+      <div class="content">
+        <div class="toolbar">
+          <div>Showing <strong>1</strong> job</div>
+          <div>
+            Search:
+            <input type="text" placeholder="filter..." />
+          </div>
+        </div>
+
+        <table>
+          <thead>
+            <tr>
+              <th>Job</th>
+              <th>Status</th>
+              <th>Completed</th>
+              <th>Total</th>
+              <th>Rate</th>
+              <th>ETA</th>
+              <th>Elapsed</th>
+              <th>Last Update</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td>ocr-inference</td>
+              <td><span class="badge" id="statusText">starting</span></td>
+              <td id="completed">0</td>
+              <td id="total">unknown</td>
+              <td id="rate">0.0 items/s</td>
+              <td id="eta">unknown</td>
+              <td id="elapsed">0s</td>
+              <td id="lastUpdate">-</td>
+            </tr>
+          </tbody>
+        </table>
+
+        <div class="progress-wrap">
+          <div class="progress-bar">
+            <span id="progressFill"></span>
+          </div>
+          <div class="footer">
+            <span class="dot" id="statusDot"></span>
+            <span id="statusSummary">starting</span>
+          </div>
+        </div>
+
+        <div class="paths">
+          <div><strong>Output:</strong> <span id="outputDir">-</span></div>
+          <div><strong>Input:</strong> <span id="inputDir">-</span></div>
+        </div>
+
+        <div class="records-section">
+          <div class="records-header">
+            <div>Page Records (<span id="recordsCount">0</span>)</div>
+            <div class="pager">
+              <button id="prevPage" type="button">Prev</button>
+              <span id="pageInfo">Page 1 of 1</span>
+              <button id="nextPage" type="button">Next</button>
+              <label>
+                Per page
+                <select id="pageSize">
+                  <option value="10">10</option>
+                  <option value="25" selected>25</option>
+                  <option value="50">50</option>
+                </select>
+              </label>
+            </div>
+          </div>
+          <div class="records-list" id="recordsList"></div>
+        </div>
+      </div>
+    </div>
+
+    <script>
+      function escapeHtml(text) {
+        const span = document.createElement("span");
+        span.textContent = text ?? "";
+        return span.innerHTML;
+      }
+
+      function clip(text, limit) {
+        if (!text) {
+          return "";
+        }
+        if (!limit || text.length <= limit) {
+          return text;
+        }
+        return text.slice(0, limit) + "...";
+      }
+
+      function statusClass(status) {
+        if (status === "success") return "status-success";
+        if (status === "error") return "status-error";
+        return "status-pending";
+      }
+
+      async function refresh() {
+        try {
+          const response = await fetch("/api/progress", { cache: "no-store" });
+          const data = await response.json();
+
+          const completed = data.completed ?? 0;
+          const total = data.total_known ? data.total : null;
+          const percentage = data.percentage ?? 0;
+
+          document.getElementById("completed").textContent = completed.toLocaleString();
+          document.getElementById("total").textContent =
+            total === null ? "unknown" : total.toLocaleString();
+
+          document.getElementById("rate").textContent = data.rate_human ?? "0.0 items/s";
+          document.getElementById("eta").textContent = data.eta_human ?? "unknown";
+          document.getElementById("elapsed").textContent = data.elapsed_human ?? "0s";
+          document.getElementById("lastUpdate").textContent = data.last_update ?? "-";
+          document.getElementById("statusText").textContent = data.status ?? "unknown";
+          document.getElementById("statusSummary").textContent = data.status ?? "unknown";
+          document.getElementById("outputDir").textContent = data.output_dir ?? "-";
+          document.getElementById("inputDir").textContent = data.input_dir ?? "-";
+
+          const width = Math.max(0, Math.min(100, percentage));
+          document.getElementById("progressFill").style.width = width + "%";
+
+          const dot = document.getElementById("statusDot");
+          if (data.status === "complete") {
+            dot.style.background = "#2b7a3d";
+            document.getElementById("statusText").style.background = "#2b7a3d";
+          } else if (data.status === "stopped") {
+            dot.style.background = "#b5471d";
+            document.getElementById("statusText").style.background = "#b5471d";
+          } else {
+            dot.style.background = "#0b5e8a";
+            document.getElementById("statusText").style.background = "#6fa043";
+          }
+        } catch (error) {
+          console.error("Failed to fetch progress", error);
+        }
+      }
+
+      const pagerState = {
+        page: 1,
+        pageSize: 25,
+        total: 0,
+      };
+
+      function updatePagerControls() {
+        const totalPages = Math.max(1, Math.ceil(pagerState.total / pagerState.pageSize));
+        if (pagerState.page > totalPages) {
+          pagerState.page = totalPages;
+        }
+        document.getElementById("pageInfo").textContent =
+          `Page ${pagerState.page} of ${totalPages}`;
+        document.getElementById("prevPage").disabled = pagerState.page <= 1;
+        document.getElementById("nextPage").disabled = pagerState.page >= totalPages;
+      }
+
+      async function refreshRecords() {
+        try {
+          const offset = (pagerState.page - 1) * pagerState.pageSize;
+          const response = await fetch(
+            `/api/records?limit=${pagerState.pageSize}&offset=${offset}`,
+            { cache: "no-store" }
+          );
+          const data = await response.json();
+          const records = data.records ?? [];
+
+          pagerState.total = data.records_total ?? records.length;
+          document.getElementById("recordsCount").textContent = pagerState.total;
+          updatePagerControls();
+
+          const list = document.getElementById("recordsList");
+          list.innerHTML = "";
+
+          for (const record of records) {
+            const row = document.createElement("a");
+            row.className = "record-row";
+            const recordId = encodeURIComponent(record.record_id ?? "");
+            row.href = "/record?record_id=" + recordId;
+
+            const requestPreview = clip(record.request_payload, 160);
+            const outputPreview = clip(record.model_output, 200);
+
+            row.innerHTML = `
+              <div>
+                <div class="record-id">${escapeHtml(record.doc_id)}</div>
+                <div class="record-meta">
+                  Page ${escapeHtml(String(record.page_index ?? ""))} ·
+                  ${escapeHtml(record.timestamp ?? "-")}
+                </div>
+              </div>
+              <div>
+                <span class="badge ${statusClass(record.status)}">
+                  ${escapeHtml(record.status ?? "pending")}
+                </span>
+              </div>
+              <div>
+                <div class="record-label">Request</div>
+                <div class="record-preview">${escapeHtml(requestPreview)}</div>
+              </div>
+              <div>
+                <div class="record-label">Output</div>
+                <div class="record-preview">${escapeHtml(outputPreview)}</div>
+              </div>
+            `;
+
+            list.appendChild(row);
+          }
+        } catch (error) {
+          console.error("Failed to fetch records", error);
+        }
+      }
+
+      refresh();
+      refreshRecords();
+      setInterval(refresh, 1500);
+      setInterval(refreshRecords, 3000);
+
+      document.getElementById("prevPage").addEventListener("click", () => {
+        pagerState.page = Math.max(1, pagerState.page - 1);
+        refreshRecords();
+      });
+
+      document.getElementById("nextPage").addEventListener("click", () => {
+        pagerState.page += 1;
+        refreshRecords();
+      });
+
+      document.getElementById("pageSize").addEventListener("change", (event) => {
+        pagerState.pageSize = Number(event.target.value) || 25;
+        pagerState.page = 1;
+        refreshRecords();
+      });
+    </script>
+  </body>
+</html>

@@ -14,6 +14,9 @@ dependencies = [
     "orjson>=3.11.7",
     "pypdf>=6.6.2",
     "aiofiles>=25.1.0",
+    "pyarrow>=23.0.0",
+    "datasets>=4.5.0",
+    "aiosqlite>=0.22.1",
 ]
 
 [project.optional-dependencies]

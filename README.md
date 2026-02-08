@@ -1,170 +1,132 @@
 # Iwe-Pipeline
 
-DataTrove-native OCR pipeline for processing documents with local or server-backed vision models.
+DataTrove-native OCR pipeline for processing PDF documents with a server-backed vision model.
 
 ## Overview
 
-Iwe-Pipeline is a modular OCR pipeline built around DataTrove pipelines and inference runners. The current codebase focuses on:
+This repository focuses on a working local OCR pipeline and a monitoring UI, with scaffolding for Azure ingestion and postprocessing stages.
 
-- Azure manifest-driven ingestion
-- Fetching PDFs from Azure Blob Storage
-- Optional page splitting for page-level OCR
-- OCR via a server-backed inference endpoint (vLLM-compatible)
-- Postprocessing, table cleanup, and quality scoring
-- Writing intermediate OCR index and final datasets
+**Working pieces:**
+- Local PDF reader + page splitting (`SplitPages`) producing one document per page
+- OCR inference via DataTrove `InferenceRunner` (server-backed endpoint)
+- JSONL output writer
+- Progress + record monitor UI (`OCRInferenceProgressMonitor`)
 
-Some components are scaffolding and are marked as TODO in code (e.g., pipeline builders and server lifecycle management). The local test runner demonstrates the current end-to-end flow against a running inference server.
+**Scaffolded / placeholder (not implemented yet):**
+- Azure ingestion (`AzureManifestReader`, `AzureFetchPDF`)
+- Page regrouping (`GroupPages`)
+- Postprocess blocks (`LanguageTag`, `BoilerplateRemover`)
+- Quality scoring (`BertQualityScore`)
+- Stage scripts in `scripts/` (config loading and pipeline builders are TODO)
 
-## Quick Start (Local Test)
+## Quick Start (Local OCR)
 
-### Install
+1. Install dependencies:
 
 ```bash
 uv pip install -e .
 ```
 
-### Run a local test
+2. Start your OCR server (OpenAI-compatible chat/completions endpoint).
 
-1. Start your OCR inference server (OpenAI-compatible chat/completions endpoint).
-2. Run the local pipeline on PDFs.
+3. Run the local pipeline with a config file:
 
 ```bash
-python test_local.py --input-dir ./test_pdfs --output-dir ./test_output --server-url http://localhost:8000
+python run_iwe_pipeline.py --config configs/run_iwe_sample.yaml
 ```
 
-This runs:
+### Sample Config
 
-- `LocalPDFReader`
-- `SplitPages`
-- `InferenceRunner` with `rollout_postprocess`
-- `JsonlWriter`
+A ready-to-edit sample lives here:
+- `configs/run_iwe_sample.yaml`
 
-Outputs are written to `test_output/`.
+Required keys for `run_iwe_pipeline.py`:
+- `input_dir` (or `data.fetched`)
+- `output_dir` (or `data.ocr_extracted`)
+- `limit`
+- `monitor`
+- `job_name`
+- `ocr.server_url`
+- `ocr.model_name`
+- `ocr.temperature`
+- `ocr.max_concurrent`
+- `ocr.max_tokens`
+- `output_filename`
+- `executor.tasks`
+- `executor.workers`
 
-## Pipeline Flow (Current)
+## Monitoring UI
 
-Local test pipeline:
+Enable monitoring in the config:
 
+```yaml
+monitor: true
 ```
-Local PDFs
-  -> SplitPages (PDF -> per-page images)
-  -> InferenceRunner (server-backed OCR)
-  -> JsonlWriter (OCR output)
-```
 
-Configured multi-stage pipeline (scaffolding in `scripts/`):
+The monitor runs by default on:
+- `http://127.0.0.1:8040`
 
-```
-Azure Manifest
-  -> AzureFetchPDF
-  -> (optional) SplitPages
-  -> InferenceRunner (server-backed OCR)
-  -> OCRIndexWriter
-  -> Postprocess + Quality blocks
-  -> FinalWriter
-```
+It exposes:
+- `/` list view
+- `/record?record_id=...` detail view
+
+The UI is served from:
+- `iwe_pipeline/monitoring/ui/index.html`
+- `iwe_pipeline/monitoring/ui/record.html`
 
 ## Project Structure
 
 ```
-iwe-pipeline/
-├── configs/
-│   ├── local.yaml
-│   ├── stages/
-│   │   ├── fetch_ocr.yaml
-│   │   └── postprocess_quality.yaml
-│   └── hf_dataset.yaml
-│
-├── scripts/
-│   ├── make_manifest.py
-│   ├── run_fetch_ocr.py
-│   ├── run_postprocess.py
-│   └── run_publish.py
-│
-├── iwe_pipeline/
-│   ├── blocks/
-│   │   ├── assemble/
-│   │   │   └── group_pages.py
-│   │   ├── fetch/
-│   │   │   └── azure_fetch_pdf.py
-│   │   ├── ocr/
-│   │   │   └── split_pages.py
-│   │   ├── postprocess/
-│   │   │   ├── boilerplate.py
-│   │   │   ├── language_tag.py
-│   │   │   ├── normalize.py
-│   │   │   └── tables.py
-│   │   └── quality/
-│   │       └── bert_score.py
-│   │
-│   ├── datamodel/
-│   │   ├── doc_schema.py
-│   │   └── ids.py
-│   │
-│   ├── monitoring/
-│   │   └── tracker.py
-│   │
-│   ├── readers/
-│   │   └── azure_manifest_reader.py
-│   │
-│   ├── server/
-│   │   └── manager.py
-│   │
-│   ├── utils/
-│   │   ├── io.py
-│   │   ├── retry.py
-│   │   ├── text.py
-│   │   └── utils.py
-│   │
-│   └── writers/
-│       ├── final_writer.py
-│       └── ocr_index_writer.py
-│
-├── test_local.py
-├── tests/
-└── data/ (gitignored)
+configs/
+  run_iwe_sample.yaml
+  local.yaml
+  hf_dataset.yaml
+  stages/
+    fetch_ocr.yaml
+    postprocess_quality.yaml
+
+iwe_pipeline/
+  blocks/
+    assemble/
+      group_pages.py           # placeholder
+    fetch/
+      azure_fetch_pdf.py       # placeholder
+    ocr/
+      split_pages.py           # active
+    postprocess/
+      boilerplate.py           # placeholder
+      language_tag.py          # placeholder
+    quality/
+      bert_score.py            # placeholder
+  monitoring/
+    tracker.py                 # active (UI + progress API)
+    ui/
+      index.html
+      record.html
+  readers/
+    azure_manifest_reader.py   # placeholder
+  ids.py                       # active (ID helpers)
+  utils.py                     # active (PDF + rollout helpers)
+
+run_iwe_pipeline.py            # config-driven local runner
+scripts/                       # stage scripts (scaffolded)
 ```
 
-## Notable Components
+## Notable Modules
 
-Readers:
+- `iwe_pipeline/blocks/ocr/split_pages.py`:
+  - Splits a PDF into one document per page and appends page number to `id`.
+  - Skips already-processed page IDs by scanning outputs.
 
-- `AzureManifestReader` reads JSONL/CSV manifests for reproducible ingestion.
+- `iwe_pipeline/utils.py`:
+  - PDF rendering + request building for OCR.
+  - `rollout_postprocess` creates OpenAI-style multimodal payloads.
 
-Blocks:
+- `iwe_pipeline/monitoring/tracker.py`:
+  - Progress tracking + web UI with per-page request/output inspection.
 
-- `AzureFetchPDF` downloads PDFs and stores local paths.
-- `SplitPages` converts a PDF into page-level images for OCR.
-- Postprocess blocks handle language tagging, normalization, boilerplate removal, and table cleanup.
-- `BertQualityScore` computes a quality score.
-- `GroupPages` merges page-level outputs into document-level output.
-
-Writers:
-
-- `OCRIndexWriter` writes intermediate OCR results.
-- `FinalWriter` writes final datasets (Parquet writer wrapper).
-
-Inference:
-
-- `rollout_postprocess` (in `iwe_pipeline/utils/utils.py`) builds OpenAI-compatible multimodal messages for inference.
-- `InferenceRunner` (DataTrove) sends requests to the configured endpoint.
-
-## Scripts and Status
-
-The scripts in `scripts/` define the intended multi-stage pipeline, but some functions are currently placeholders:
-
-- `load_config` and `build_pipeline` in `run_fetch_ocr.py` and `run_postprocess.py` are TODO.
-- `ServerManager` in `iwe_pipeline/server/manager.py` is a stub.
-
-Use `test_local.py` as the working reference for an end-to-end run.
-
-## Environment
-
-Copy `.env.example` and set credentials as needed:
-
-```bash
-cp .env.example .env
-```
+- `iwe_pipeline/ids.py`:
+  - Stable doc/page ID helpers.
 
 ## Tests
 

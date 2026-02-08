@@ -26,9 +26,9 @@ from datatrove.pipeline.writers import JsonlWriter
 
 # Import actual pipeline components
 from iwe_pipeline.blocks.ocr.split_pages import SplitPages
-from iwe_pipeline.datamodel.ids import generate_doc_id
+from iwe_pipeline.ids import generate_doc_id
 from iwe_pipeline.monitoring.tracker import OCRInferenceProgressMonitor
-from iwe_pipeline.utils.utils import rollout_postprocess
+from iwe_pipeline.utils import rollout_postprocess
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"

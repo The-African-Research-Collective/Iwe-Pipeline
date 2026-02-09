@@ -8,7 +8,7 @@ authors = [
 ]
 requires-python = ">=3.12"
 dependencies = [
-    "datatrove>=0.8.0",
+    "datatrove[cli,io,processing]>=0.8.0",
     "azure-storage-blob>=12.0.0",
     "pyyaml>=6.0.0",
     "orjson>=3.11.7",
@@ -46,6 +46,9 @@ mlx = [
 
 all = [
     "iwe-pipeline[vllm,exo,ollama,mlx]",
+]
+azure = [
+    "adlfs>=2025.8.0",
 ]
 
 [project.scripts]

@@ -2,17 +2,20 @@ import gzip
 import re
 import shutil
 from collections.abc import Callable
-from typing import Final
+from typing import Final, TypedDict
 
 from datatrove.data import Document
 from datatrove.io import cached_asset_path_or_download, safely_create_file
 from datatrove.utils._import_utils import check_required_dependencies
 from datatrove.utils.lid import FastTextLID
 
-from iwe_pipeline.datamodel.doc_schema import LanguageMetadata
 from iwe_pipeline.lid.cleaning_utils import get_nonprintable_char_handler
 
-type LanguageInfo = dict[str, str | float]
+
+class LanguageMetadata(TypedDict):
+    language: str
+    lid: str
+    score: float
 
 
 class OpenLID(FastTextLID):

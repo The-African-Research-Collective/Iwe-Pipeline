@@ -21,62 +21,19 @@ from datatrove.pipeline.inference.run_inference import (
     InferenceConfig,
     InferenceRunner,
 )
-from datatrove.pipeline.readers.base import BaseReader
 from datatrove.pipeline.writers import JsonlWriter
 
 # Import actual pipeline components
 from iwe_pipeline.blocks.ocr.split_pages import SplitPages
 from iwe_pipeline.ids import generate_doc_id
 from iwe_pipeline.monitoring.tracker import OCRInferenceProgressMonitor
+from iwe_pipeline.readers.pdf import PDFReader
 from iwe_pipeline.utils import rollout_postprocess
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
 )
 logger = logging.getLogger(__name__)
-
-
-class LocalPDFReader(BaseReader):
-    """
-    Reader for local PDF files.
-
-    Reads PDFs from a directory and yields Document objects.
-    """
-
-    name = "Local PDF"
-
-    def __init__(self, input_dir: str, limit: int = -1, skip: int = 0, **kwargs):
-        super().__init__(limit, skip, **kwargs)
-        self.input_dir = Path(input_dir)
-
-    def run(self, data=None, rank=0, world_size=1):
-        """Yield Documents from local PDFs."""
-        pdf_files = sorted(self.input_dir.glob("*.pdf"))
-
-        logger.info(f"Found {len(pdf_files)} PDF files in {self.input_dir}")
-
-        for idx, pdf_path in enumerate(pdf_files):
-            # Apply skip and limit
-            if idx < self.skip:
-                continue
-            if self.limit != -1 and idx >= self.skip + self.limit:
-                break
-
-            # Generate stable ID
-            doc_id = generate_doc_id(str(pdf_path))
-
-            yield Document(
-                id=doc_id,
-                text="",
-                metadata={
-                    "source": {
-                        "path": str(pdf_path),
-                        "name": pdf_path.name,
-                        "num_pages": None,
-                    }
-                },
-                media=[],
-            )
 
 
 def build_pipeline(
@@ -246,7 +203,7 @@ python test_local.py --input-dir test_pdfs
     )
 
     # Create reader
-    reader = LocalPDFReader(input_dir=str(input_dir), limit=limit)
+    reader = PDFReader(data_folder=str(input_dir), limit=limit)
 
     # Full pipeline
     pipeline = [reader] + pipeline_blocks

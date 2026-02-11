@@ -4,7 +4,7 @@ from datatrove.data import Document
 from datatrove.pipeline.filters.base_filter import BaseFilter
 from datatrove.pipeline.writers.disk_base import DiskWriter
 
-from iwe_pipeline.lid.fasttext import LocalLID, OpenLID, OpenLIDv2
+from iwe_pipeline.lid.fasttext import LanguageStrategy, LocalLID, OpenLID, OpenLIDv2
 
 
 class AfricanLanguageFilter(BaseFilter):
@@ -17,9 +17,10 @@ class AfricanLanguageFilter(BaseFilter):
 
     def __init__(
         self,
-        lid_model: Literal["locallid", "openlid", "openlid_v2"] = "openlidv2",
+        lid_model: Literal["locallid", "openlid", "openlidv2"] = "openlidv2",
         lid_model_path: str | None = None,
         languages: list[str] | str | None = None,
+        strategy: LanguageStrategy = LanguageStrategy.ALAP,
         language_threshold: float = 0.85,
         keep_top_predictions_threshold: float = -1,
         batch_size: int = 1,
@@ -30,14 +31,19 @@ class AfricanLanguageFilter(BaseFilter):
         self.backend = lid_model
         self.language_threshold = language_threshold
         self.keep_top_predictions_threshold = keep_top_predictions_threshold
+        self.strategy = strategy
 
         if isinstance(languages, str):
             languages = [languages]
 
         self.languages = set(languages) if languages else languages
         self.model = self.backend_map[lid_model](
-            model_path=lid_model_path, languages=languages, k=5
+            model_path=lid_model_path, languages=languages, k=5, strategy=strategy
         )
+
+        if self.languages is None:
+            # model.languages may be updated depending on strategy so we sync
+            self.languages = self.model.languages
 
     def filter(self, doc: Document) -> bool:
         """Args:

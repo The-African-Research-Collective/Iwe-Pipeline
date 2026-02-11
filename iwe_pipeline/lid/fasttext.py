@@ -2,6 +2,7 @@ import gzip
 import re
 import shutil
 from collections.abc import Callable
+from enum import Enum
 from typing import Final, TypedDict
 
 from datatrove.data import Document
@@ -11,6 +12,8 @@ from datatrove.utils.lid import FastTextLID
 
 from iwe_pipeline.lid.cleaning_utils import get_nonprintable_char_handler
 
+PIVOT_LANGUAGES: Final = frozenset(["eng_Latn", "fra_Latn", "por_Latn"])
+
 
 class LanguageMetadata(TypedDict):
     language: str
@@ -18,12 +21,18 @@ class LanguageMetadata(TypedDict):
     score: float
 
 
+class LanguageStrategy(Enum):
+    CUSTOM = "custom"
+    AL = "african_languages"
+    ALAP = "african_languages_and_pivot"
+
+
 class OpenLID(FastTextLID):
     NAME = "openlid"
     MODEL_SUBFOLDER = "openlid"
     MODEL_URL = "https://data.statmt.org/lid/lid201-model.bin.gz"
     WHITESPACE_REGEX = re.compile(r"\s+")
-    SUPPORTED_LANGUAGES: Final = frozenset(
+    SUPPORTED_AFRICAN_LANGUAGES: Final = frozenset(
         [
             "afr_Latn",
             "amh_Ethi",
@@ -74,7 +83,7 @@ class OpenLID(FastTextLID):
         self,
         languages: list[str] | None = None,
         k: int = -1,
-        supported_languages_only: bool = True,
+        strategy: LanguageStrategy = LanguageStrategy.ALAP,
         **kwargs,
     ) -> None:
         """
@@ -82,10 +91,13 @@ class OpenLID(FastTextLID):
             languages (list[str]): Languages to predict
             k (int, optional): Number of top-k languages to consider
                             all languages outside of k will be considered as being predicted with 0.0
-            supported_languages_only  (bool, optional): Return scores for only African languages supported by this LID
+            strategy (LanguageStrategy): If languages is None, this sets languages using the strategy passed
         """
-        if languages is None and supported_languages_only:
-            languages = self.SUPPORTED_LANGUAGES
+        if languages is None:
+            if strategy == LanguageStrategy.AL:
+                languages = self.SUPPORTED_AFRICAN_LANGUAGES
+            elif strategy == LanguageStrategy.ALAP:
+                languages = self.SUPPORTED_AFRICAN_LANGUAGES | PIVOT_LANGUAGES
         super().__init__(languages, k)
 
     def _initialize_model(self) -> None:
@@ -161,7 +173,7 @@ class OpenLID(FastTextLID):
 class OpenLIDv2(OpenLID):
     MODEL_URL = "https://huggingface.co/laurievb/OpenLID-v2/resolve/main/model.bin?download=true"
     MODEL_SUBFOLDER = "openlid_v2"
-    SUPPORTED_LANGUAGES: Final = frozenset(
+    SUPPORTED_AFRICAN_LANGUAGES: Final = frozenset(
         [
             "afr_Latn",
             "amh_Ethi",
@@ -212,11 +224,11 @@ class OpenLIDv2(OpenLID):
         self,
         languages: list[str] | None = None,
         k: int = -1,
-        supported_languages_only: bool = True,
+        strategy: LanguageStrategy = LanguageStrategy.ALAP,
         **kwargs,
     ):
         check_required_dependencies("OpenLIDV2", ["cleantext", "emoji"])
-        super().__init__(languages, k, supported_languages_only)
+        super().__init__(languages, k, strategy)
 
         global replace_emoji
         global cleantext_func

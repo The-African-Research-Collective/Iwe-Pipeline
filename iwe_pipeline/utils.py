@@ -65,8 +65,8 @@ def get_pdf_media_box_width_height(local_pdf_path: str, page_num: int) -> tuple[
 
 
 def render_pdf_to_base64png(
-    local_pdf_path: str, page_num: int, target_longest_image_dim: int = 2048
-) -> str:
+    local_pdf_path: str, page_num: int, target_longest_image_dim: int = 2048, as_str: bool = True
+) -> bytes | str:
     longest_dim = max(get_pdf_media_box_width_height(local_pdf_path, page_num))
 
     # Convert PDF page to PNG using pdftoppm
@@ -88,7 +88,12 @@ def render_pdf_to_base64png(
         capture_output=True,
     )
     assert pdftoppm_result.returncode == 0, pdftoppm_result.stderr
-    return base64.b64encode(pdftoppm_result.stdout).decode("utf-8")
+    png_bytes = base64.b64encode(pdftoppm_result.stdout)
+
+    if as_str:
+        return png_bytes.decode("utf-8")
+
+    return png_bytes
 
 
 def get_png_dimensions_from_base64(base64_data) -> tuple[int, int]:
@@ -170,6 +175,13 @@ def build_message(image_base64: bytes, system_prompt: str = SYSTEM_PROMPT):
     ]
 
     return prompt
+
+
+def pdftoppm_exists():
+    proc = subprocess.Popen(
+        "pdftoppm --help", shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+    )
+    return "pdftoppm" in str(proc.communicate())
 
 
 def prepare_requests_postprocess(

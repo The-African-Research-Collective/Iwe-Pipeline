@@ -102,7 +102,7 @@ def build_pipeline(cfg: DictConfig):
 @hydra.main(
     version_base=None,
     config_path="configs",
-    config_name="tewe",
+    config_name="run_iwe_sample",
 )
 def main(cfg: DictConfig) -> int:
     logger.info("=" * 80)

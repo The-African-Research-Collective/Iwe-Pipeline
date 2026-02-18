@@ -1,3 +1,4 @@
+import base64
 import tempfile
 from collections.abc import Callable, Iterable
 from io import BytesIO
@@ -123,9 +124,15 @@ class PDFReader(BaseDiskReader):
 
     def get_azure_document_metadata(self, filepath):
         full_metadata = self.data_folder.fs.info(f"{self.data_folder.path}/{filepath}")
+
+        content_md5_bytes = full_metadata["content_settings"]["content_md5"]
+        content_md5_str = (
+            base64.b64encode(content_md5_bytes).decode("utf-8") if content_md5_bytes else None
+        )
+
         return {
             "etag": full_metadata["etag"],
-            "content_md5": full_metadata["content_settings"]["content_md5"],
+            "content_md5": content_md5_str,
             **full_metadata["metadata"],
         }
 

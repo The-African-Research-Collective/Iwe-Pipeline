@@ -5,9 +5,14 @@ Local Testing Script - Uses Real iwe_pipeline Components
 Test the actual Iwe-Pipeline blocks on local PDFs.
 
 Usage:
-    python run_iwe_pipeline.py --config configs/run_iwe_sample.yaml
+    python run_iwe_pipeline.py \
+        reader.backend=azure \
+        reader.azure.container_path=az://mycontainer \
+        reader.input_dir="mypdfdir" \
+        ocr.server_url=http://127.0.0.1:8080 \
+        ocr.model_name=mradermacher/KarantaOCR-GGUF \
+        output.output_dir=local_output_test
 """
-
 
 import logging
 import os

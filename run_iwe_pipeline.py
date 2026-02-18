@@ -8,243 +8,128 @@ Usage:
     python run_iwe_pipeline.py --config configs/run_iwe_sample.yaml
 """
 
-import argparse
-import logging
-import threading
-from datetime import UTC, datetime
-from pathlib import Path
 
-import yaml
-from datatrove.data import Document
+import logging
+import os
+from datetime import UTC, datetime
+from functools import partial
+
+import hydra
 from datatrove.executor.local import LocalPipelineExecutor
 from datatrove.pipeline.inference.run_inference import (
     InferenceConfig,
     InferenceRunner,
 )
 from datatrove.pipeline.writers import JsonlWriter
+from hydra.core.hydra_config import HydraConfig
+from omegaconf import DictConfig, OmegaConf
 
-# Import actual pipeline components
-from iwe_pipeline.blocks.ocr.split_pages import SplitPages
-from iwe_pipeline.ids import generate_doc_id
-from iwe_pipeline.monitoring.tracker import OCRInferenceProgressMonitor
 from iwe_pipeline.readers.pdf import PDFReader
 from iwe_pipeline.utils import rollout_postprocess
 
 logging.basicConfig(
-    level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"
+    level=logging.INFO,
+    format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
 
 
-def build_pipeline(
-    output_dir: str,
-    server_url: str,
-    *,
-    model_name: str,
-    temperature: float,
-    max_concurrent: int,
-    max_tokens: int,
-    output_filename: str,
-):
-    """
-    Build full pipeline including OCR (requires inference server).
-    """
-    pipeline = [
-        SplitPages(
-            output_dir=output_dir,
-            processed_ids_path=f"{output_dir}/processed_ids.txt",
-        ),
+def build_reader(cfg: DictConfig) -> PDFReader:
+    reader = partial(
+        PDFReader,
+        pdf_to_ppm=cfg.reader.pdf_to_ppm,
+        yield_pages_as_documents=cfg.reader.yield_pages_as_documents,
+        glob_pattern=cfg.reader.glob_pattern,
+        recursive=cfg.reader.recursive,
+        limit=cfg.reader.limit,
+    )
+
+    if cfg.reader.backend == "local":
+        if not os.path.exists(cfg.reader.input_dir):
+            raise ValueError(f"Input directory does not exist: {cfg.reader.input_dir}")
+
+        return reader(data_folder=cfg.reader.input_dir)
+
+    elif cfg.reader.backend == "azure":
+        from adlfs import AzureBlobFileSystem
+
+        fs = AzureBlobFileSystem()
+        data_folder = ("/".join([cfg.reader.azure.container_path, cfg.reader.input_dir]), fs)
+
+        if not fs.exists(data_folder[0]):
+            raise ValueError(f"Input directory does not exist: {data_folder[0]}")
+
+        return reader(data_folder=data_folder)
+
+    else:
+        raise ValueError(f"Unknown reader backend: {cfg.reader.backend}")
+
+
+def build_pipeline(cfg: DictConfig):
+    """Build full pipeline including OCR (requires inference server)."""
+    output_folder = cfg.output.output_dir
+    if cfg.output.backend == "azure":
+        from adlfs import AzureBlobFileSystem
+
+        fs = AzureBlobFileSystem()
+        output_folder = ("/".join([cfg.reader.azure.container_path, output_folder]), fs)
+
+    return [
         InferenceRunner(
             rollout_fn=rollout_postprocess,
             config=InferenceConfig(
-                model_name_or_path=model_name,
-                default_generation_params={"temperature": temperature},
-                max_concurrent_generations=max_concurrent,
+                model_name_or_path=cfg.ocr.model_name,
+                default_generation_params={"temperature": cfg.ocr.temperature},
+                max_concurrent_generations=cfg.ocr.max_concurrent,
                 server_type="endpoint",
+                api_key=cfg.ocr.server_api_key,
                 metric_interval=100,
-                endpoint_url=server_url,
+                endpoint_url=cfg.ocr.server_url,
             ),
             output_writer=JsonlWriter(
-                output_folder=output_dir,
-                output_filename=output_filename,
+                output_folder=output_folder,
+                output_filename=cfg.output.output_filename,
             ),
             shared_context={
-                "model_name_or_path": model_name,
-                "max_tokens": max_tokens,
+                "model_name_or_path": cfg.ocr.model_name,
+                "max_tokens": cfg.ocr.max_tokens,
             },
-            checkpoints_local_dir=f"{output_dir}/checkpoints",
+            checkpoints_local_dir=cfg.ocr.checkpoints_local_dir,
         ),
     ]
 
-    return pipeline
 
-
-def main():
-    """Main entry point."""
-    parser = argparse.ArgumentParser(
-        description="Test Iwe-Pipeline on local PDFs using real components",
-        formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-Examples:
-# Test postprocessing without OCR server
-python test_local.py --input-dir test_pdfs
-        """,
-    )
-    parser.add_argument(
-        "--config",
-        type=str,
-        default="configs/run_iwe_sample.yaml",
-        help="Path to config file in configs/ directory",
-    )
-
-    args = parser.parse_args()
-
-    config_path = Path(args.config)
-    if not config_path.exists():
-        logger.error(f"Config file not found: {config_path}")
-        return 1
-
-    with config_path.open("rt", encoding="utf-8") as handle:
-        config = yaml.safe_load(handle) or {}
-
-    data_cfg = config.get("data", {})
-    ocr_cfg = config.get("ocr", {})
-    executor_cfg = config.get("executor", {})
-
-    input_dir_value = config.get("input_dir") or data_cfg.get("fetched")
-    output_dir_value = config.get("output_dir") or data_cfg.get("ocr_extracted")
-    server_url = ocr_cfg.get("server_url")
-    limit = config.get("limit")
-    tasks = executor_cfg.get("tasks")
-    workers = executor_cfg.get("workers")
-    monitor = config.get("monitor")
-    job_name = config.get("job_name")
-    max_concurrent = ocr_cfg.get("max_concurrent")
-    max_tokens = ocr_cfg.get("max_tokens")
-    model_name = ocr_cfg.get("model_name")
-    temperature = ocr_cfg.get("temperature")
-    output_filename = config.get("output_filename")
-
-    missing = []
-    if not input_dir_value:
-        missing.append("input_dir or data.fetched")
-    if not output_dir_value:
-        missing.append("output_dir or data.ocr_extracted")
-    if not server_url:
-        missing.append("ocr.server_url")
-    if tasks is None:
-        missing.append("executor.tasks")
-    if workers is None:
-        missing.append("executor.workers")
-    if limit is None:
-        missing.append("limit")
-    if monitor is None:
-        missing.append("monitor")
-    if not job_name:
-        missing.append("job_name")
-    if max_concurrent is None:
-        missing.append("ocr.max_concurrent")
-    if max_tokens is None:
-        missing.append("ocr.max_tokens")
-    if not model_name:
-        missing.append("ocr.model_name")
-    if temperature is None:
-        missing.append("ocr.temperature")
-    if not output_filename:
-        missing.append("output_filename")
-
-    if missing:
-        logger.error("Missing required config values: " + ", ".join(missing))
-        return 1
-
-    input_dir = Path(input_dir_value)
-    output_dir = Path(output_dir_value)
-    if not server_url.endswith("/v1"):
-        server_url = server_url.rstrip("/") + "/v1"
-    limit = int(limit)
-    tasks = int(tasks)
-    workers = int(workers)
-    monitor = bool(monitor)
-    job_name = str(job_name)
-    max_concurrent = int(max_concurrent)
-    max_tokens = int(max_tokens)
-    model_name = str(model_name)
-    temperature = float(temperature)
-    output_filename = str(output_filename)
-
-    # Validate input directory
-    if not input_dir.exists():
-        logger.error(f"Input directory does not exist: {input_dir}")
-        logger.info(f"Create it with: mkdir -p {input_dir}")
-        return 1
-
-    # Check for PDFs
-    pdf_files = list(input_dir.glob("*.pdf"))
-    if not pdf_files:
-        logger.error(f"No PDF files found in: {input_dir}")
-        return 1
-
+@hydra.main(
+    version_base=None,
+    config_path="configs",
+    config_name="tewe",
+)
+def main(cfg: DictConfig) -> int:
     logger.info("=" * 80)
     logger.info("Iwe-Pipeline: Local Test with Real Components")
     logger.info("=" * 80)
-    logger.info(f"Input: {input_dir} ({len(pdf_files)} PDFs)")
-    logger.info(f"Output: {output_dir}")
-    logger.info(f"Tasks: {tasks}, Workers: {workers}")
 
-    logger.info(f"Building page-level pipeline with OCR server at {server_url}")
-    pipeline_blocks = build_pipeline(
-        str(output_dir),
-        server_url,
-        model_name=model_name,
-        temperature=temperature,
-        max_concurrent=max_concurrent,
-        max_tokens=max_tokens,
-        output_filename=output_filename,
-    )
+    logger.info("Configuration:\n%s", OmegaConf.to_yaml(cfg))
 
-    # Create reader
-    reader = PDFReader(data_folder=str(input_dir), limit=limit)
+    logger.info(f"Output: {cfg.output.output_dir}")
+    logger.info(f"Tasks: {cfg.executor.tasks}, Workers: {cfg.executor.workers}")
 
-    # Full pipeline
+    reader = build_reader(cfg)
+    pipeline_blocks = build_pipeline(cfg)
     pipeline = [reader] + pipeline_blocks
 
-    logger.info("=" * 80)
+    hydra_run_dir = HydraConfig.get().run.dir
 
     run_id = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    run_dir = f"./logs/{job_name}_run_{run_id}"
+    run_dir = f"{hydra_run_dir}/{cfg.job_name}_run_{run_id}"
 
-    def run_monitor():
-        monitor_pipeline = [
-            OCRInferenceProgressMonitor(
-                output_dir=str(output_dir),
-                input_dir=str(input_dir),
-                page_level=True,
-                port=8040,
-                update_interval=5,
-                stats_path=f"{run_dir}/stats.json",
-            )
-        ]
+    logger.info(f"Run dir: {run_dir}")
 
-        monitor_executor = LocalPipelineExecutor(
-            pipeline=monitor_pipeline,
-            tasks=1,
-            workers=1,
-            logging_dir=f"{run_dir}_monitor",
-        )
-        monitor_executor.run()
-        logger.info("✓ OCR progress monitor stopped.")
-
-    # Execute with LocalPipelineExecutor
     try:
-        monitor_thread = None
-        if monitor:
-            monitor_thread = threading.Thread(target=run_monitor, name="ocr-monitor")
-            monitor_thread.start()
-
         executor = LocalPipelineExecutor(
             pipeline=pipeline,
-            tasks=tasks,
-            workers=workers,
+            tasks=cfg.executor.tasks,
+            workers=cfg.executor.workers,
             logging_dir=run_dir,
         )
 
@@ -252,11 +137,9 @@ python test_local.py --input-dir test_pdfs
 
         logger.info("=" * 80)
         logger.info("✓ Pipeline completed successfully!")
-        logger.info(f"✓ Output: {output_dir}/output_*.jsonl.gz")
-        logger.info("=" * 80)
 
-        if monitor_thread is not None:
-            monitor_thread.join()
+        logger.info(f"✓ Output: {cfg.output.output_dir}/output_*.jsonl.gz")
+        logger.info("=" * 80)
 
         return 0
 
@@ -266,4 +149,4 @@ python test_local.py --input-dir test_pdfs
 
 
 if __name__ == "__main__":
-    exit(main())
+    raise SystemExit(main())

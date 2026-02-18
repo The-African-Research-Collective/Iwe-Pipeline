@@ -155,7 +155,7 @@ def get_png_dimensions_from_base64(base64_data) -> tuple[int, int]:
     return width, height
 
 
-def build_message(image_base64: bytes, system_prompt: str = SYSTEM_PROMPT):
+def build_message(image_base64: str, system_prompt: str = SYSTEM_PROMPT):
     """Format messages in OpenAI-compatible multimodal chat format."""
 
     prompt = [
@@ -191,17 +191,17 @@ def prepare_requests_postprocess(
 
     requests: list[tuple[dict[str, Any], int]] = []
 
-    for page_index, page_bytes in enumerate(document.media):
+    for media in document.media:
         try:
             requests.append(
                 (
                     {
-                        "messages": build_message(page_bytes["media_bytes"]),
+                        "messages": build_message(media.media_bytes.decode("utf-8")),
                         "model": model_name,
                         "temperature": 0.0,
                         "max_tokens": max_tokens,
                     },
-                    page_index,
+                    media.metadata["page"],
                 )
             )
 

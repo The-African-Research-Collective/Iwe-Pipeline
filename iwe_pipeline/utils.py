@@ -257,9 +257,6 @@ async def rollout_postprocess(document: Document, generate: Any, **kwargs) -> An
         else:
             results.append(result)
 
-    # Store results in metadata for postprocess_postprocess
-    document.metadata["inference_results"] = results
-
     # Run post-processing
     # postprocess_postprocess(document)
 

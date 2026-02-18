@@ -21,6 +21,7 @@ from functools import partial
 
 import hydra
 from datatrove.executor.local import LocalPipelineExecutor
+from datatrove.pipeline.base import PipelineStep
 from datatrove.pipeline.inference.run_inference import (
     InferenceConfig,
     InferenceRunner,
@@ -70,7 +71,7 @@ def build_reader(cfg: DictConfig) -> PDFReader:
         raise ValueError(f"Unknown reader backend: {cfg.reader.backend}")
 
 
-def build_pipeline(cfg: DictConfig):
+def build_pipeline(cfg: DictConfig) -> list[PipelineStep]:
     """Build full pipeline including OCR (requires inference server)."""
     output_folder = cfg.output.output_dir
     if cfg.output.backend == "azure":

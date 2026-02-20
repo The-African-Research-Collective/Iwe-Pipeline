@@ -107,7 +107,7 @@ class PDFReader(BaseDiskReader):
             shuffle_files,
         )
 
-        if pdf_to_ppm and not pdftoppm_exists:
+        if pdf_to_ppm and not pdftoppm_exists():
             raise RuntimeError(
                 "pdf_to_ppm=True requires poppler-utils (pdftoppm). "
                 "Install it via your system package manager."

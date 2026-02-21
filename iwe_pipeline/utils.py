@@ -65,8 +65,8 @@ def get_pdf_media_box_width_height(local_pdf_path: str, page_num: int) -> tuple[
 
 
 def render_pdf_to_base64png(
-    local_pdf_path: str, page_num: int, target_longest_image_dim: int = 2048
-) -> str:
+    local_pdf_path: str, page_num: int, target_longest_image_dim: int = 2048, as_str: bool = True
+) -> bytes | str:
     longest_dim = max(get_pdf_media_box_width_height(local_pdf_path, page_num))
 
     # Convert PDF page to PNG using pdftoppm
@@ -88,7 +88,12 @@ def render_pdf_to_base64png(
         capture_output=True,
     )
     assert pdftoppm_result.returncode == 0, pdftoppm_result.stderr
-    return base64.b64encode(pdftoppm_result.stdout).decode("utf-8")
+    png_bytes = base64.b64encode(pdftoppm_result.stdout)
+
+    if as_str:
+        return png_bytes.decode("utf-8")
+
+    return png_bytes
 
 
 def get_png_dimensions_from_base64(base64_data) -> tuple[int, int]:
@@ -150,7 +155,7 @@ def get_png_dimensions_from_base64(base64_data) -> tuple[int, int]:
     return width, height
 
 
-def build_message(image_base64: bytes, system_prompt: str = SYSTEM_PROMPT):
+def build_message(image_base64: str, system_prompt: str = SYSTEM_PROMPT):
     """Format messages in OpenAI-compatible multimodal chat format."""
 
     prompt = [
@@ -172,6 +177,13 @@ def build_message(image_base64: bytes, system_prompt: str = SYSTEM_PROMPT):
     return prompt
 
 
+def pdftoppm_exists():
+    proc = subprocess.Popen(
+        "pdftoppm --help", shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT
+    )
+    return "pdftoppm" in str(proc.communicate())
+
+
 def prepare_requests_postprocess(
     document: Document, model_name: str, max_tokens: int
 ) -> list[tuple[dict[str, Any], int]]:
@@ -179,17 +191,17 @@ def prepare_requests_postprocess(
 
     requests: list[tuple[dict[str, Any], int]] = []
 
-    for page_index, page_bytes in enumerate(document.media):
+    for media in document.media:
         try:
             requests.append(
                 (
                     {
-                        "messages": build_message(page_bytes["media_bytes"]),
+                        "messages": build_message(media.media_bytes.decode("utf-8")),
                         "model": model_name,
                         "temperature": 0.0,
                         "max_tokens": max_tokens,
                     },
-                    page_index,
+                    media.metadata["page"],
                 )
             )
 
@@ -244,9 +256,6 @@ async def rollout_postprocess(document: Document, generate: Any, **kwargs) -> An
             results.append({"text": "", "error": str(result)})
         else:
             results.append(result)
-
-    # Store results in metadata for postprocess_postprocess
-    document.metadata["inference_results"] = results
 
     # Run post-processing
     # postprocess_postprocess(document)

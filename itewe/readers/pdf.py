@@ -239,8 +239,8 @@ class PDFReader(BaseDiskReader):
         else:
             document_id = generate_doc_id(filepath)
 
-        if "etag" not in metadata["source"]:
-            metadata["source"]["document_id"] = document_id
+        if "etag" not in metadata:
+            metadata["document_id"] = document_id
 
         for idx, page in enumerate(reader.pages):
             writer = PdfWriter()

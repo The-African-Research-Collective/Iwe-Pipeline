@@ -8,11 +8,11 @@ executor:
   workers: 1
 
 reader:
-  input_dir: "???"
+  input_dir: "/Users/odunayoogundepo/Desktop/Iwe-Pipeline/test_pdfs"
   backend: local # local | azure
   pdf_to_ppm: true
   target_longest_image_dim: 2048
-  yield_pages_as_documents: false
+  yield_pages_as_documents: true
   glob_pattern: "**/*.pdf"
   recursive: true
   limit: ${limit}
@@ -21,8 +21,8 @@ reader:
     container_path: az://mycontainer
 
 ocr:
-  server_url: "???"
-  model_name: "???"
+  server_url: "http://localhost:8000"
+  model_name: "taresco/KarantaOCR"
   server_api_key: null
   temperature: 0.0
   max_concurrent: 8
@@ -30,7 +30,7 @@ ocr:
   checkpoints_local_dir: null
 
 output:
-  output_dir: "???"
+  output_dir: "/Users/odunayoogundepo/Desktop/Iwe-Pipeline/test_pdfs/outputs"
   backend: local # local | azure
   output_filename: rank_\${rank}_chunk_\${chunk_index}_output.jsonl
 

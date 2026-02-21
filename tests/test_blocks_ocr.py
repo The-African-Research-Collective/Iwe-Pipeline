@@ -2,8 +2,8 @@
 Tests for OCR blocks.
 """
 
-from iwe_pipeline.blocks.ocr.karanta_vllm_ocr import KarantaVLLMOCR
-from iwe_pipeline.blocks.ocr.split_pages import SplitPages
+from itewe.blocks.ocr.karanta_vllm_ocr import KarantaVLLMOCR
+from itewe.blocks.ocr.split_pages import SplitPages
 
 
 def test_karanta_ocr_init():

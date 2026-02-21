@@ -2,10 +2,11 @@
 Tests for postprocessing blocks.
 """
 
-from iwe_pipeline.blocks.postprocess.boilerplate import BoilerplateRemover
-from iwe_pipeline.blocks.postprocess.language_tag import LanguageTag
-from iwe_pipeline.blocks.postprocess.normalize import Normalize
-from iwe_pipeline.blocks.postprocess.tables import TableCleaner
+from itewe.blocks.postprocess.language_tag import LanguageTag
+from itewe.blocks.postprocess.normalize import Normalize
+from itewe.blocks.postprocess.tables import TableCleaner
+
+from itewe.blocks.postprocess.boilerplate import BoilerplateRemover
 
 
 def test_language_tag_init():

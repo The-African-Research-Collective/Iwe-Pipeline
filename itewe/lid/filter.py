@@ -4,7 +4,7 @@ from datatrove.data import Document
 from datatrove.pipeline.filters.base_filter import BaseFilter
 from datatrove.pipeline.writers.disk_base import DiskWriter
 
-from iwe_pipeline.lid.fasttext import LanguageStrategy, LocalLID, OpenLID, OpenLIDv2
+from itewe.lid.fasttext import LanguageStrategy, LocalLID, OpenLID, OpenLIDv2
 
 
 class AfricanLanguageFilter(BaseFilter):

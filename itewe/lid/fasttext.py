@@ -10,7 +10,7 @@ from datatrove.io import cached_asset_path_or_download, safely_create_file
 from datatrove.utils._import_utils import check_required_dependencies
 from datatrove.utils.lid import FastTextLID
 
-from iwe_pipeline.lid.cleaning_utils import get_nonprintable_char_handler
+from itewe.lid.cleaning_utils import get_nonprintable_char_handler
 
 PIVOT_LANGUAGES: Final = frozenset(["eng_Latn", "fra_Latn", "por_Latn"])
 

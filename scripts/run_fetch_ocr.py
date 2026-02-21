@@ -15,7 +15,7 @@ import logging
 
 from datatrove.executor.local import LocalPipelineExecutor
 
-from iwe_pipeline.server.manager import ServerManager
+from itewe.server.manager import ServerManager
 
 logging.basicConfig(
     level=logging.INFO, format="%(asctime)s - %(name)s - %(levelname)s - %(message)s"

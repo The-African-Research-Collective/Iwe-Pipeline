@@ -30,8 +30,8 @@ from datatrove.pipeline.writers import JsonlWriter
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 
-from iwe_pipeline.readers.pdf import PDFReader
-from iwe_pipeline.utils import rollout_postprocess
+from itewe.readers.pdf import PDFReader
+from itewe.utils import rollout_postprocess
 
 logging.basicConfig(
     level=logging.INFO,

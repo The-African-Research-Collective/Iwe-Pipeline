@@ -85,12 +85,7 @@ The UI is served from:
 
 ```yaml
 configs/
-  run_iwe_sample.yaml
-  local.yaml
-  hf_dataset.yaml
-  stages/
-    fetch_ocr.yaml
-    postprocess_quality.yaml
+  tewe.yaml
 
 itewe/
   blocks/

@@ -2,6 +2,7 @@
 Modified from OCR predictor block in finepdfs repo:
 https://github.com/huggingface/finepdfs/blob/main/blocks/predictor/ocr_predictor.py
 """
+
 import io
 
 import pandas as pd
@@ -51,15 +52,19 @@ class OCRClassifier(BaseMediaExtractor):
 
         try:
             pymupdf_doc = pymupdf.open(stream=io.BytesIO(media_bytes), filetype="pdf")
+
             if check_is_corrupted_or_encrypted(pymupdf_doc):
                 return "<no content>", {"extraction_error": "Document is corrupted or encrypted"}
 
             features = self.feature_extractor.extract_all_features(
-                pymupdf_doc
-            ).get_flattened_features()
+                pymupdf_doc, flatten=True, resample=True
+            )
 
-            ocr_prob = self.model.predict_proba(pd.DataFrame.from_dict(features))[0][1]
-            return {
+            ocr_prob = self.model.predict_proba(
+                pd.DataFrame.from_dict(features)[self._model_feature_names]
+            )[0][1]
+
+            return "<no content>", {
                 "ocr_prob": float(ocr_prob),
                 "is_form": features[0]["is_form"],
                 "garbled_text_ratio": features[0]["garbled_text_ratio"],

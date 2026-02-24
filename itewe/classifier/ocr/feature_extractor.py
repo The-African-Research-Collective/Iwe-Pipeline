@@ -98,7 +98,7 @@ class PDFChunkFeatures:
             self.num_pages_successfully_sampled < self.num_pages_requested_for_sampling
         ):
             page_idxs += np.random.choice(
-                self.num_pages_requested_for_sampling,
+                self.num_pages_successfully_sampled,
                 self.num_pages_requested_for_sampling - self.num_pages_successfully_sampled,
                 replace=True,
             ).tolist()
@@ -117,7 +117,10 @@ class PDFChunkFeatures:
                 _new_key = key[:-1]
 
             flattened_features.update(
-                {f"{_new_key}_page{i + 1}": sampled_page_features[key][i] for i in page_idxs}
+                {
+                    f"{_new_key}_page{i + 1}": sampled_page_features[key][page_idx]
+                    for i, page_idx in enumerate(page_idxs)
+                }
             )
             used_keys.add(key)
 
@@ -502,7 +505,7 @@ class PDFFeatureExtractor:
             garbled_text_ratio=0.0
             if sum(text_lengths_for_pages_in_chunk) == 0
             else sum(num_replacement_char_per_page_in_chunk) / sum(text_lengths_for_pages_in_chunk),
-            num_pages_requested_for_sampling=len(chunk),
+            num_pages_requested_for_sampling=self.num_pages_to_sample,
             # These are updated below
             num_junk_image_xrefs=0,
             num_unique_image_xrefs=0,
@@ -516,8 +519,8 @@ class PDFFeatureExtractor:
 
         # image xref stats
         junk_image_info = self._get_junk_image_stats_from_sampled_pages(doc, chunk)
-        features.num_junk_image_xrefs = junk_image_info["num_junk_image_xrefs"]
-        features.num_unique_image_xrefs = junk_image_info["num_unique_image_xrefs"]
+        features.num_junk_image_xrefs = junk_image_info.get("num_junk_image_xrefs", 0)
+        features.num_unique_image_xrefs = junk_image_info.get("num_unique_image_xrefs", 0)
 
         for page_idx in chunk:
             try:
@@ -559,13 +562,20 @@ class PDFFeatureExtractor:
 
         return features
 
-    def extract_all_features(self, doc: pymupdf.Document) -> PDFChunkFeatures:
+    def extract_all_features(
+        self, doc: pymupdf.Document, flatten: bool = False, resample: bool = False
+    ) -> list[PDFChunkFeatures]:
         sampled_page_indices_to_try = self._get_sampled_page_indices(doc)
-        return [
+        features = [
             self.compute_features_for_chunk(doc, chunk) for chunk in sampled_page_indices_to_try
         ]
 
-    def run(self, doc_bytes: bytes) -> tuple[PDFChunkFeatures, int]:
+        if flatten:
+            return [f.get_flattened_features(resample=resample) for f in features]
+
+        return features
+
+    def run(self, doc_bytes: bytes) -> tuple[list[PDFChunkFeatures], int]:
         pymupdf_doc = None
 
         try:

@@ -177,13 +177,14 @@ class PDFReader(BaseDiskReader):
     def _read_file_whole(
         self, filepath: str, reader: PdfReader, metadata: dict
     ) -> Iterable[PDFDocument]:
+        data = {"text": " ", "metadata": {"source": metadata}, "media": []}
+
         for idx, page in enumerate(reader.pages):
             writer = PdfWriter()
             writer.add_page(page)
 
             buffer = BytesIO()
             writer.write(buffer)
-            data = {"text": " ", "metadata": {"source": metadata}, "media": []}
 
             page_id = generate_doc_id(f"{filepath}/{idx}")
 

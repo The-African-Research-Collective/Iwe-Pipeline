@@ -1,8 +1,7 @@
 import contextlib
 from abc import abstractmethod
-from typing import Optional
 
-from datatrove.data import Document, DocumentsPipeline, Media, MediaType
+from datatrove.data import DocumentsPipeline
 from datatrove.pipeline.base import PipelineStep
 from datatrove.pipeline.extractors.base import ExtractorSandbox
 from datatrove.pipeline.writers.disk_base import DiskWriter
@@ -19,7 +18,7 @@ class BaseMediaExtractor(PipelineStep):
     def __init__(
         self,
         timeout: float = 60,
-        exclusion_writer: Optional[DiskWriter] = None,
+        exclusion_writer: DiskWriter | None = None,
         exclude_failed: bool = True,
         keep_original_text: bool = False,
     ):

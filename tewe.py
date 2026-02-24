@@ -20,16 +20,24 @@ from datetime import UTC, datetime
 from functools import partial
 
 import hydra
+from datatrove.data import Document
 from datatrove.executor.local import LocalPipelineExecutor
+from datatrove.io import DataFolder, get_datafolder
 from datatrove.pipeline.base import PipelineStep
+from datatrove.pipeline.filters import LambdaFilter
 from datatrove.pipeline.inference.run_inference import (
     InferenceConfig,
     InferenceRunner,
 )
+from datatrove.pipeline.media.media_writers.zstd import ZstdWriter
 from datatrove.pipeline.writers import JsonlWriter
+from fsspec import AbstractFileSystem
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 
+from itewe.classifier.ocr.ocr_classifier import OCRClassifier
+from itewe.dedup import AzureContentMD5DedupFilter
+from itewe.docling_extractor import DoclingExtractor
 from itewe.readers.pdf import PDFReader
 from itewe.utils.rollout_utils import rollout_postprocess
 
@@ -38,6 +46,22 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s",
 )
 logger = logging.getLogger(__name__)
+
+
+# --------------------------------------------
+def _get_datafolder(output_path: str, fs: AbstractFileSystem | None = None) -> DataFolder:
+    if fs is None:
+        return get_datafolder(output_path)
+    return get_datafolder((output_path, fs))
+
+
+def _filter_ocr(x: Document) -> bool:
+    meta = x.media[0].metadata or {}
+    # See the training notebook why we decided for this threshold
+    # TODO: @theyorubayesian Maybe investigate this?
+    requires_ocr = meta.get("ocr_prob", 0) >= 0.2 or meta.get("garbled_text_ratio", 0) > 0.0
+    return not requires_ocr
+# --------------------------------------------
 
 
 def build_reader(cfg: DictConfig) -> PDFReader:
@@ -71,36 +95,53 @@ def build_reader(cfg: DictConfig) -> PDFReader:
         raise ValueError(f"Unknown reader backend: {cfg.reader.backend}")
 
 
-def build_pipeline(cfg: DictConfig) -> list[PipelineStep]:
+def build_dedup_ocr_pipeline(cfg: DictConfig) -> list[PipelineStep]:
     """Build full pipeline including OCR (requires inference server)."""
     output_folder = cfg.output.output_dir
+    fs = None
+
     if cfg.output.backend == "azure":
         from adlfs import AzureBlobFileSystem
 
         fs = AzureBlobFileSystem()
-        output_folder = ("/".join([cfg.reader.azure.container_path, output_folder]), fs)
+        output_folder = os.path.join(cfg.output.azure.container_path, output_folder)
+
+    partial_datafolder = partial(_get_datafolder, fs=fs)
 
     return [
-        InferenceRunner(
-            rollout_fn=rollout_postprocess,
-            config=InferenceConfig(
-                model_name_or_path=cfg.ocr.model_name,
-                default_generation_params={"temperature": cfg.ocr.temperature},
-                max_concurrent_generations=cfg.ocr.max_concurrent,
-                server_type="endpoint",
-                api_key=cfg.ocr.server_api_key,
-                metric_interval=100,
-                endpoint_url=cfg.ocr.server_url,
+        AzureContentMD5DedupFilter(
+            exclusion_writer=JsonlWriter(
+                output_folder=partial_datafolder(
+                    output_path=os.path.join(output_folder, "content_md5_dedup", "removed")
+                )
+            )
+        ),
+        ZstdWriter(
+            max_file_size=100 * 1024 * 1024 * 1024,
+            output_folder=partial_datafolder(output_path=output_folder),
+            output_filename="pdfs_${rank}.zstd",
+        ),
+        OCRClassifier(
+            path_to_model=cfg.classifiers.ocr_classifier_model_path,
+            exclusion_writer=JsonlWriter(
+                output_folder=partial_datafolder(
+                    output_path=os.path.join(output_folder, "failed_ocr_pred")
+                ),
             ),
-            output_writer=JsonlWriter(
-                output_folder=output_folder,
-                output_filename=cfg.output.output_filename,
+            exclude_failed=True,
+        ),
+        LambdaFilter(
+            _filter_ocr,
+            exclusion_writer=JsonlWriter(
+                output_folder=partial_datafolder(
+                    output_path=os.path.join(output_folder, "ocr_required")
+                ),
             ),
-            shared_context={
-                "model_name_or_path": cfg.ocr.model_name,
-                "max_tokens": cfg.ocr.max_tokens,
-            },
-            checkpoints_local_dir=cfg.ocr.checkpoints_local_dir,
+        ),
+        JsonlWriter(
+            output_folder=partial_datafolder(
+                output_path=os.path.join(output_folder, "nocr_required")
+            )
         ),
     ]
 
@@ -121,7 +162,7 @@ def main(cfg: DictConfig) -> int:
     logger.info(f"Tasks: {cfg.executor.tasks}, Workers: {cfg.executor.workers}")
 
     reader = build_reader(cfg)
-    pipeline_blocks = build_pipeline(cfg)
+    pipeline_blocks = build_dedup_ocr_pipeline(cfg)
     pipeline = [reader] + pipeline_blocks
 
     hydra_run_dir = HydraConfig.get().run.dir

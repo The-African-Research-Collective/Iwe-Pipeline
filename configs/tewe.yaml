@@ -1,5 +1,5 @@
 # Sample config for run_iwe_pipeline.py
-limit: 100
+limit: -1
 monitor: false
 job_name: iwe_local
 
@@ -28,6 +28,9 @@ ocr:
   max_concurrent: 8
   max_tokens: 2048
   checkpoints_local_dir: null
+
+classifiers:
+  ocr_classifier_model_path: "???"
 
 output:
   output_dir: "???"

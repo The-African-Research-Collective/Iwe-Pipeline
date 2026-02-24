@@ -2,7 +2,7 @@
 Tests for quality scoring blocks.
 """
 
-from iwe_pipeline.blocks.quality.bert_score import BertQualityScore
+from itewe.blocks.quality.bert_score import BertQualityScore
 
 
 def test_bert_score_init():

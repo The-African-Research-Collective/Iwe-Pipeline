@@ -20,7 +20,7 @@ import pyarrow.parquet as pq
 from datatrove.pipeline.base import PipelineStep
 from datatrove.utils.logging import logger
 
-from iwe_pipeline.utils import SYSTEM_PROMPT, get_pdf_num_pages
+from itewe.utils import SYSTEM_PROMPT, get_pdf_num_pages
 
 
 def _format_duration(seconds: float | None) -> str:

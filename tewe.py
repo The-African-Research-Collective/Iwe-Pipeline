@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """
-Local Testing Script - Uses Real iwe_pipeline Components
+Local Testing Script - Uses Real ìtèwé Components
 
-Test the actual Iwe-Pipeline blocks on local PDFs.
+Test the actual ìtèwé blocks on local PDFs.
 
 Usage:
-    python run_iwe_pipeline.py \
+    python tewe.py \
         reader.backend=azure \
         reader.azure.container_path=az://mycontainer \
         reader.input_dir="mypdfdir" \
@@ -30,8 +30,8 @@ from datatrove.pipeline.writers import JsonlWriter
 from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 
-from iwe_pipeline.readers.pdf import PDFReader
-from iwe_pipeline.utils import rollout_postprocess
+from itewe.readers.pdf import PDFReader
+from itewe.utils import rollout_postprocess
 
 logging.basicConfig(
     level=logging.INFO,
@@ -108,7 +108,7 @@ def build_pipeline(cfg: DictConfig) -> list[PipelineStep]:
 @hydra.main(
     version_base=None,
     config_path="configs",
-    config_name="run_iwe_sample",
+    config_name="tewe",
 )
 def main(cfg: DictConfig) -> int:
     logger.info("=" * 80)

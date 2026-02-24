@@ -26,6 +26,7 @@ dependencies = [
     "docling-core>=2.38.2",
     "docling-ibm-models>=3.6.0",
     "openvino==2025.3.0",
+    "scikit-learn>=1.8.0",
 ]
 
 [project.optional-dependencies]

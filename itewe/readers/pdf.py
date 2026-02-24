@@ -9,7 +9,7 @@ from datatrove.pipeline.readers.base import BaseDiskReader
 from pypdf import PdfReader, PdfWriter
 
 from itewe.ids import generate_doc_id
-from itewe.utils import pdftoppm_exists, render_pdf_to_base64png
+from itewe.utils.pdf_utils import pdftoppm_exists, render_pdf_to_base64png
 
 try:
     from adlfs import AzureBlobFileSystem

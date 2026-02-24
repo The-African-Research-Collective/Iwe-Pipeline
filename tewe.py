@@ -31,7 +31,7 @@ from hydra.core.hydra_config import HydraConfig
 from omegaconf import DictConfig, OmegaConf
 
 from itewe.readers.pdf import PDFReader
-from itewe.utils import rollout_postprocess
+from itewe.utils.rollout_utils import rollout_postprocess
 
 logging.basicConfig(
     level=logging.INFO,

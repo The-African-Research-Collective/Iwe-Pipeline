@@ -28,7 +28,9 @@ from datatrove.pipeline.inference.run_inference import (
     InferenceConfig,
     InferenceRunner,
 )
+from datatrove.pipeline.media.media_readers.zstd import ZstdReader
 from datatrove.pipeline.media.media_writers.zstd import ZstdWriter
+from datatrove.pipeline.readers import JsonlReader
 from datatrove.pipeline.writers import JsonlWriter
 from fsspec import AbstractFileSystem
 from hydra.core.hydra_config import HydraConfig
@@ -63,7 +65,7 @@ def _filter_ocr(x: Document) -> bool:
 # --------------------------------------------
 
 
-def build_reader(cfg: DictConfig) -> PDFReader:
+def build_pdf_reader(cfg: DictConfig) -> PDFReader:
     reader = partial(
         PDFReader,
         pdf_to_ppm=cfg.reader.pdf_to_ppm,
@@ -95,7 +97,7 @@ def build_reader(cfg: DictConfig) -> PDFReader:
         raise ValueError(f"Unknown reader backend: {cfg.reader.backend}")
 
 
-def build_dedup_ocr_pipeline(cfg: DictConfig) -> list[PipelineStep]:
+def run_dedup_ocr_classifier_pipeline(cfg: DictConfig) -> LocalPipelineExecutor:
     """Build full pipeline including OCR (requires inference server)."""
     output_folder = cfg.output.output_dir
     fs = None
@@ -109,7 +111,8 @@ def build_dedup_ocr_pipeline(cfg: DictConfig) -> list[PipelineStep]:
 
     partial_datafolder = partial(_get_datafolder, fs=fs)
 
-    return [
+    pipeline = [
+        build_pdf_reader(cfg),
         AzureContentMD5DedupFilter(
             exclusion_writer=JsonlWriter(
                 output_folder=partial_datafolder(
@@ -146,6 +149,62 @@ def build_dedup_ocr_pipeline(cfg: DictConfig) -> list[PipelineStep]:
         ),
     ]
 
+    executor = LocalPipelineExecutor(
+        pipeline=pipeline,
+        tasks=cfg.executor.tasks,
+        workers=cfg.executor.workers,
+        logging_dir=os.path.join(HydraConfig.get().run.dir, "dedup_ocr_classifier"),
+    )
+
+    return executor
+
+
+def run_nocr_extraction_pipeline(cfg: DictConfig) -> LocalPipelineExecutor:
+    output_folder = cfg.output.output_dir
+    fs = None
+
+    if cfg.output.backend == "azure":
+        from adlfs import AzureBlobFileSystem
+
+        storage_options = OmegaConf.to_container(cfg.azure, resolve=True)
+        fs = AzureBlobFileSystem(**storage_options)
+        output_folder = os.path.join(cfg.output.azure.container_path, output_folder)
+
+    partial_datafolder = partial(_get_datafolder, fs=fs)
+
+    reader = ZstdReader(
+        input_folder=partial_datafolder(output_path=os.path.join(output_folder, "pdfs")),
+        workers=4,
+        preserve_order=True,
+    )
+
+    pipeline_docling = [
+        JsonlReader(
+            data_folder=partial_datafolder(
+                output_path=os.path.join(output_folder, "nocr_required")
+            ),
+            glob_pattern="**/*.jsonl.gz",
+            doc_progress=True,
+        ),
+        reader,
+        DoclingExtractor(
+            timeout=10 * 60,
+            exclusion_writer=JsonlWriter(
+                output_folder=os.path.join(output_folder, "nocr_extraction_failed"),
+            ),
+        ),
+        JsonlWriter(output_folder=os.path.join(output_folder, "nocr_extracted")),
+    ]
+
+    executor = LocalPipelineExecutor(
+        pipeline=pipeline_docling,
+        tasks=cfg.executor.tasks,
+        workers=cfg.executor.workers,
+        logging_dir=os.path.join(HydraConfig.get().run.dir, "nocr_extraction"),
+    )
+
+    return executor
+
 
 @hydra.main(
     version_base=None,
@@ -162,35 +221,36 @@ def main(cfg: DictConfig) -> int:
     logger.info(f"Output: {cfg.output.output_dir}")
     logger.info(f"Tasks: {cfg.executor.tasks}, Workers: {cfg.executor.workers}")
 
-    reader = build_reader(cfg)
-    pipeline_blocks = build_dedup_ocr_pipeline(cfg)
-    pipeline = [reader] + pipeline_blocks
+    dedup_ocr_classifier_executor = run_dedup_ocr_classifier_pipeline(cfg)
+
+    nocr_extraction_executor = run_nocr_extraction_pipeline(cfg)
+    nocr_extraction_executor.depends = dedup_ocr_classifier_executor
 
     run_dir = HydraConfig.get().run.dir
 
     logger.info(f"Run dir: {run_dir}")
 
-    try:
-        executor = LocalPipelineExecutor(
-            pipeline=pipeline,
-            tasks=cfg.executor.tasks,
-            workers=cfg.executor.workers,
-            logging_dir=run_dir,
-        )
+    # try:
+    #     executor = LocalPipelineExecutor(
+    #         pipeline=pipeline,
+    #         tasks=cfg.executor.tasks,
+    #         workers=cfg.executor.workers,
+    #         logging_dir=run_dir,
+    #     )
 
-        executor.run()
+    #     executor.run()
 
-        logger.info("=" * 80)
-        logger.info("✓ Pipeline completed successfully!")
+    #     logger.info("=" * 80)
+    #     logger.info("✓ Pipeline completed successfully!")
 
-        logger.info(f"✓ Output: {cfg.output.output_dir}/output_*.jsonl.gz")
-        logger.info("=" * 80)
+    #     logger.info(f"✓ Output: {cfg.output.output_dir}/output_*.jsonl.gz")
+    #     logger.info("=" * 80)
 
-        return 0
+    #     return 0
 
-    except Exception as e:
-        logger.error(f"Pipeline failed: {e}", exc_info=True)
-        return 1
+    # except Exception as e:
+    #     logger.error(f"Pipeline failed: {e}", exc_info=True)
+    #     return 1
 
 
 if __name__ == "__main__":

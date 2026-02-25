@@ -1,4 +1,8 @@
 # Sample config for run_iwe_pipeline.py
+hydra:
+  run:
+    dir: outputs/${job_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
 limit: -1
 monitor: false
 job_name: iwe_local
@@ -39,3 +43,10 @@ output:
 
   azure:
     container_path: az://mycontainer
+
+azure:
+  timeout: 3_600
+  read_timeout: 3_600
+  connection_timeout: 3_600
+  socket_timeout: 3_600
+  blocksize: 4_194_304

@@ -16,7 +16,6 @@ Usage:
 
 import logging
 import os
-from datetime import UTC, datetime
 from functools import partial
 
 import hydra
@@ -83,7 +82,8 @@ def build_reader(cfg: DictConfig) -> PDFReader:
     elif cfg.reader.backend == "azure":
         from adlfs import AzureBlobFileSystem
 
-        fs = AzureBlobFileSystem()
+        storage_options = OmegaConf.to_container(cfg.azure, resolve=True)
+        fs = AzureBlobFileSystem(**storage_options)
         data_folder = ("/".join([cfg.reader.azure.container_path, cfg.reader.input_dir]), fs)
 
         if not fs.exists(data_folder[0]):
@@ -103,7 +103,8 @@ def build_dedup_ocr_pipeline(cfg: DictConfig) -> list[PipelineStep]:
     if cfg.output.backend == "azure":
         from adlfs import AzureBlobFileSystem
 
-        fs = AzureBlobFileSystem()
+        storage_options = OmegaConf.to_container(cfg.azure, resolve=True)
+        fs = AzureBlobFileSystem(**storage_options)
         output_folder = os.path.join(cfg.output.azure.container_path, output_folder)
 
     partial_datafolder = partial(_get_datafolder, fs=fs)
@@ -117,8 +118,8 @@ def build_dedup_ocr_pipeline(cfg: DictConfig) -> list[PipelineStep]:
             )
         ),
         ZstdWriter(
-            max_file_size=100 * 1024 * 1024 * 1024,
-            output_folder=partial_datafolder(output_path=output_folder),
+            max_file_size=5 * 1024 * 1024 * 1024,
+            output_folder=partial_datafolder(output_path=os.path.join(output_folder, "pdfs")),
             output_filename="pdfs_${rank}.zstd",
         ),
         OCRClassifier(
@@ -165,10 +166,7 @@ def main(cfg: DictConfig) -> int:
     pipeline_blocks = build_dedup_ocr_pipeline(cfg)
     pipeline = [reader] + pipeline_blocks
 
-    hydra_run_dir = HydraConfig.get().run.dir
-
-    run_id = datetime.now(UTC).strftime("%Y%m%d_%H%M%S")
-    run_dir = f"{hydra_run_dir}/{cfg.job_name}_run_{run_id}"
+    run_dir = HydraConfig.get().run.dir
 
     logger.info(f"Run dir: {run_dir}")
 

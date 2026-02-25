@@ -1,12 +1,15 @@
 import base64
+import os
 import tempfile
 from collections.abc import Callable, Iterable
+from concurrent.futures import ThreadPoolExecutor
+from functools import partial
 from io import BytesIO
 from typing import Literal, NotRequired, TypedDict
 
+import pikepdf
 from datatrove.io import DataFileLike, DataFolderLike
 from datatrove.pipeline.readers.base import BaseDiskReader
-from pypdf import PdfReader, PdfWriter
 
 from itewe.ids import generate_doc_id
 from itewe.utils.pdf_utils import pdftoppm_exists, render_pdf_to_base64png
@@ -138,20 +141,18 @@ class PDFReader(BaseDiskReader):
 
     def read_file(self, filepath: str) -> Iterable[PDFPage | PDFDocument]:
         with self.data_folder.open(filepath, "rb") as f:
-            reader = PdfReader(f)
+            pdf_bytes = f.read()
 
-            source_document_metadata = {
-                "num_pages": len(reader.pages),
-            }
+            source_document_metadata = {"num_pages": len(pikepdf.open(BytesIO(pdf_bytes)).pages)}
             if self.has_azure_fs:
                 source_document_metadata = (
                     source_document_metadata | self.get_azure_document_metadata(filepath)
                 )
 
             if self.yield_pages_as_documents:
-                yield from self._read_file_by_pages(filepath, reader, source_document_metadata)
+                yield from self._read_file_by_pages(filepath, pdf_bytes, source_document_metadata)
             else:
-                yield from self._read_file_whole(filepath, reader, source_document_metadata)
+                yield from self._read_file_whole(filepath, pdf_bytes, source_document_metadata)
 
     def _default_adapter(
         self, data: dict, path: str, id_in_file: int | str
@@ -174,66 +175,85 @@ class PDFReader(BaseDiskReader):
             "metadata": metadata | data,  # remaining data goes into metadata
         }
 
-    def _read_file_whole(
-        self, filepath: str, reader: PdfReader, metadata: dict
-    ) -> Iterable[PDFDocument]:
-        data = {"text": " ", "metadata": {"source": metadata}, "media": []}
+    def _render_pages(
+        self, filepath: str, pdf_bytes: bytes, num_pages: int
+    ) -> tuple[str, list[bytes]]:
+        if self.pdf_to_ppm:
+            tmp_pdf_file = None
+            try:
+                if self.has_azure_fs:
+                    tmp_pdf_file = tempfile.NamedTemporaryFile(suffix=".pdf", delete=False)
+                    tmp_pdf_file.write(pdf_bytes)
+                    tmp_pdf_file.flush()
+                    pdf_path = tmp_pdf_file.name
+                else:
+                    pdf_path = filepath
 
-        for idx, page in enumerate(reader.pages):
-            writer = PdfWriter()
-            writer.add_page(page)
-
-            buffer = BytesIO()
-            writer.write(buffer)
-
-            page_id = generate_doc_id(f"{filepath}/{idx}")
-
-            if self.pdf_to_ppm:
-                with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp_pdf:
-                    tmp_pdf.write(buffer.getvalue())
-                    tmp_pdf.flush()
-
-                    png_bytes = render_pdf_to_base64png(
-                        tmp_pdf.name,
-                        page_num=1,
-                        target_longest_image_dim=self.target_longest_image_dim,
-                        as_str=False,
-                    )
-
-                    data["media"] += [
-                        {
-                            "id": page_id,
-                            "type": "image/png",
-                            "url": f"{filepath}/{idx}",
-                            "media_bytes": png_bytes,
-                            "metadata": {
-                                "page": idx,
-                            },
-                        }
+                render_page = partial(
+                    render_pdf_to_base64png,
+                    local_pdf_path=pdf_path,
+                    target_longest_image_dim=self.target_longest_image_dim,
+                    as_str=False,
+                )
+                with ThreadPoolExecutor() as executor:
+                    futures = [
+                        executor.submit(render_page, page_num=idx + 1) for idx in range(num_pages)
                     ]
-            else:
-                data["media"] += [
-                    {
-                        "id": page_id,
-                        "type": "application/pdf",
-                        "url": f"{filepath}/{idx}",
-                        "media_bytes": buffer.getvalue(),
-                        "metadata": {
-                            "page": idx,
-                        },
-                    }
-                ]
-
-        if self.has_azure_fs:
-            document_id = metadata.get("etag", generate_doc_id(filepath))
+                    return "image/png", [f.result() for f in futures]
+            finally:
+                if tmp_pdf_file is not None:
+                    tmp_pdf_file.close()
+                    os.unlink(tmp_pdf_file.name)
         else:
-            document_id = generate_doc_id(filepath)
+
+            def extract_page(idx: int) -> bytes:
+                pdf = pikepdf.open(BytesIO(pdf_bytes))
+                out = pikepdf.Pdf.new()
+                out.pages.append(pdf.pages[idx])
+                buf = BytesIO()
+                out.save(buf)
+                page_bytes = buf.getvalue()
+                buf.close()
+                return page_bytes
+
+            with ThreadPoolExecutor() as executor:
+                futures = [executor.submit(extract_page, idx) for idx in range(num_pages)]
+                return "application/pdf", [f.result() for f in futures]
+
+    def _read_file_whole(
+        self, filepath: str, pdf_bytes: bytes, metadata: dict
+    ) -> Iterable[PDFDocument]:
+        with self.track_time():
+            media_type, media_bytes_per_page = self._render_pages(
+                filepath, pdf_bytes, metadata["num_pages"]
+            )
+
+        data = {
+            "text": " ",
+            "metadata": {"source": metadata},
+            "media": [
+                {
+                    "id": generate_doc_id(f"{filepath}/{idx}"),
+                    "type": media_type,
+                    "url": f"{filepath}/{idx}",
+                    "media_bytes": media_bytes_per_page[idx],
+                    "metadata": {"page": idx},
+                }
+                for idx in range(metadata["num_pages"])
+            ],
+        }
+
+        document_id = (
+            metadata.get("etag", generate_doc_id(filepath))
+            if self.has_azure_fs
+            else generate_doc_id(filepath)
+        )
 
         with self.track_time():
             yield self.get_document_from_dict(data, source_file=filepath, id_in_file=document_id)
 
     def _read_file_by_pages(
-        self, filepath: str, reader: PdfReader, metadata: dict
+        self, filepath: str, pdf_bytes: bytes, metadata: dict
     ) -> Iterable[PDFPage]:
         if self.has_azure_fs:
             document_id = metadata.get("etag", generate_doc_id(filepath))
@@ -243,51 +263,25 @@ class PDFReader(BaseDiskReader):
         if "etag" not in metadata:
             metadata["document_id"] = document_id
 
-        for idx, page in enumerate(reader.pages):
-            writer = PdfWriter()
-            writer.add_page(page)
+        with self.track_time():
+            media_type, media_bytes_per_page = self._render_pages(
+                filepath, pdf_bytes, metadata["num_pages"]
+            )
 
-            buffer = BytesIO()
-            writer.write(buffer)
-            data = {"text": " ", "metadata": {"source": metadata, "page": idx}, "media": []}
-
+        for idx in range(metadata["num_pages"]):
             page_id = generate_doc_id(f"{filepath}/{idx}")
-
-            if self.pdf_to_ppm:
-                with tempfile.NamedTemporaryFile(suffix=".pdf") as tmp_pdf:
-                    tmp_pdf.write(buffer.getvalue())
-                    tmp_pdf.flush()
-
-                    png_bytes = render_pdf_to_base64png(
-                        tmp_pdf.name,
-                        page_num=1,
-                        target_longest_image_dim=self.target_longest_image_dim,
-                        as_str=False,
-                    )
-
-                    data["media"] = [
-                        {
-                            "id": page_id,
-                            "type": "image/png",
-                            "url": f"{filepath}/{idx}",
-                            "media_bytes": png_bytes,
-                            "metadata": {
-                                "page": idx,
-                            },
-                        }
-                    ]
-            else:
-                data["media"] = [
+            data = {
+                "text": " ",
+                "metadata": {"source": metadata, "page": idx},
+                "media": [
                     {
                         "id": page_id,
-                        "type": "application/pdf",
+                        "type": media_type,
                         "url": f"{filepath}/{idx}",
-                        "media_bytes": buffer.getvalue(),
-                        "metadata": {
-                            "page": idx,
-                        },
+                        "media_bytes": media_bytes_per_page[idx],
+                        "metadata": {"page": idx},
                     }
-                ]
-
+                ],
+            }
             with self.track_time():
                 yield self.get_document_from_dict(data, source_file=filepath, id_in_file=page_id)

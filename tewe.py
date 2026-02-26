@@ -222,35 +222,12 @@ def main(cfg: DictConfig) -> int:
     logger.info(f"Tasks: {cfg.executor.tasks}, Workers: {cfg.executor.workers}")
 
     dedup_ocr_classifier_executor = run_dedup_ocr_classifier_pipeline(cfg)
-
     nocr_extraction_executor = run_nocr_extraction_pipeline(cfg)
     nocr_extraction_executor.depends = dedup_ocr_classifier_executor
 
-    run_dir = HydraConfig.get().run.dir
+    logger.info(f"Run dir: {HydraConfig.get().run.dir}")
 
-    logger.info(f"Run dir: {run_dir}")
-
-    # try:
-    #     executor = LocalPipelineExecutor(
-    #         pipeline=pipeline,
-    #         tasks=cfg.executor.tasks,
-    #         workers=cfg.executor.workers,
-    #         logging_dir=run_dir,
-    #     )
-
-    #     executor.run()
-
-    #     logger.info("=" * 80)
-    #     logger.info("✓ Pipeline completed successfully!")
-
-    #     logger.info(f"✓ Output: {cfg.output.output_dir}/output_*.jsonl.gz")
-    #     logger.info("=" * 80)
-
-    #     return 0
-
-    # except Exception as e:
-    #     logger.error(f"Pipeline failed: {e}", exc_info=True)
-    #     return 1
+    nocr_extraction_executor.run()
 
 
 if __name__ == "__main__":

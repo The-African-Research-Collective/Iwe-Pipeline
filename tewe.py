@@ -173,7 +173,7 @@ def run_nocr_extraction_pipeline(cfg: DictConfig) -> LocalPipelineExecutor:
     partial_datafolder = partial(_get_datafolder, fs=fs)
 
     reader = ZstdReader(
-        input_folder=partial_datafolder(output_path=os.path.join(output_folder, "pdfs")),
+        data_folder=partial_datafolder(output_path=os.path.join(output_folder, "pdfs")),
         workers=4,
         preserve_order=True,
     )

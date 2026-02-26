@@ -43,7 +43,7 @@ class DoclingExtractor(BaseMediaExtractor):
             do_table_structure=False,
             do_ocr=False,
             document_timeout=docling_timeout,
-            accelerator_options=AcceleratorOptions(device=AcceleratorDevice.MPS, num_threads=1),
+            accelerator_options=AcceleratorOptions(device=AcceleratorDevice.AUTO, num_threads=1),
         )
         self.logger_stream = LoggerStream(
             [logging.getLogger("docling"), logging.getLogger("pymupdf")]

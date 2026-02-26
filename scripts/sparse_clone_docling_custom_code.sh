@@ -12,4 +12,4 @@ GIT_LFS_SKIP_SMUDGE=1 git checkout
 cd -
 
 mkdir -p docling_code
-mv "$TMP_DIR/docling_code/custom_code" docling_code/custom_code
+mv "$TMP_DIR/docling_code/custom_code" docling_code

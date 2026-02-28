@@ -276,7 +276,7 @@ class PDFReader(BaseDiskReader):
             yield self.get_document_from_dict(
                 data,
                 source_file=filepath,
-                id_in_file=metadata["source"].get("document_id", metadata.get("etag")),
+                id_in_file=metadata.get("document_id", metadata.get("etag")),
             )
 
     def _read_file_by_pages(

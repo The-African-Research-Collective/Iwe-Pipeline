@@ -164,7 +164,7 @@ class PDFReader(BaseDiskReader):
 
             try:
                 source_document_metadata["num_pages"] = len(pikepdf.open(BytesIO(pdf_bytes)).pages)
-            except pikepdf.PdfError as e:
+            except Exception as e:
                 logger.warning(f"Failed to open PDF {filepath}: {e}. Yielding empty document.")
                 self.get_document_from_dict(
                     {"text": " ", "metadata": {"source": source_document_metadata}},

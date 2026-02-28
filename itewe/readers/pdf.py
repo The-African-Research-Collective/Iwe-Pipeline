@@ -10,6 +10,7 @@ from typing import Literal, NotRequired, TypedDict
 import pikepdf
 from datatrove.io import DataFileLike, DataFolderLike
 from datatrove.pipeline.readers.base import BaseDiskReader
+from datatrove.utils.logging import logger
 
 from itewe.ids import generate_doc_id
 from itewe.utils.pdf_utils import pdftoppm_exists, render_pdf_to_base64png
@@ -69,6 +70,8 @@ class PDFReader(BaseDiskReader):
         The DPI passed to pdftoppm is calculated from this and the PDF page size.
     yield_pages_as_documents : bool
         If True, each page of the PDF is yielded as a separate document
+    skip_render: bool
+        If True, only metadata is yielded. The media field of each document isn't populated.
 
     See BaseDiskReader for remaining params
     """
@@ -80,6 +83,7 @@ class PDFReader(BaseDiskReader):
         data_folder: DataFolderLike,
         paths_file: DataFileLike | None = None,
         pdf_to_ppm: bool = False,
+        skip_render: bool = False,
         target_longest_image_dim: int = 2048,
         yield_pages_as_documents: bool = False,
         limit: int = -1,
@@ -118,6 +122,7 @@ class PDFReader(BaseDiskReader):
         self.pdf_to_ppm = pdf_to_ppm
         self.target_longest_image_dim = target_longest_image_dim
         self.yield_pages_as_documents = yield_pages_as_documents
+        self.skip_render = skip_render
 
     @property
     def has_azure_fs(self):
@@ -143,13 +148,37 @@ class PDFReader(BaseDiskReader):
         with self.data_folder.open(filepath, "rb") as f:
             pdf_bytes = f.read()
 
-            source_document_metadata = {"num_pages": len(pikepdf.open(BytesIO(pdf_bytes)).pages)}
+            source_document_metadata = {}
             if self.has_azure_fs:
                 source_document_metadata = (
                     source_document_metadata | self.get_azure_document_metadata(filepath)
                 )
 
-            if self.yield_pages_as_documents:
+            document_id = (
+                source_document_metadata.get("etag", generate_doc_id(filepath))
+                if self.has_azure_fs
+                else generate_doc_id(filepath)
+            )
+            if "etag" not in source_document_metadata:
+                source_document_metadata["document_id"] = document_id
+
+            try:
+                source_document_metadata["num_pages"] = len(pikepdf.open(BytesIO(pdf_bytes)).pages)
+            except pikepdf.PdfError as e:
+                logger.warning(f"Failed to open PDF {filepath}: {e}. Yielding empty document.")
+                self.get_document_from_dict(
+                    {"text": " ", "metadata": {"source": source_document_metadata}},
+                    source_file=filepath,
+                    id_in_file=document_id,
+                )
+                return
+
+            if self.skip_render:
+                data = {"text": " ", "metadata": {"source": source_document_metadata}}
+                yield self.get_document_from_dict(
+                    data, source_file=filepath, id_in_file=document_id
+                )
+            elif self.yield_pages_as_documents:
                 yield from self._read_file_by_pages(filepath, pdf_bytes, source_document_metadata)
             else:
                 yield from self._read_file_whole(filepath, pdf_bytes, source_document_metadata)
@@ -243,26 +272,16 @@ class PDFReader(BaseDiskReader):
             ],
         }
 
-        document_id = (
-            metadata.get("etag", generate_doc_id(filepath))
-            if self.has_azure_fs
-            else generate_doc_id(filepath)
-        )
-
         with self.track_time():
-            yield self.get_document_from_dict(data, source_file=filepath, id_in_file=document_id)
+            yield self.get_document_from_dict(
+                data,
+                source_file=filepath,
+                id_in_file=metadata["source"].get("document_id", metadata.get("etag")),
+            )
 
     def _read_file_by_pages(
         self, filepath: str, pdf_bytes: bytes, metadata: dict
     ) -> Iterable[PDFPage]:
-        if self.has_azure_fs:
-            document_id = metadata.get("etag", generate_doc_id(filepath))
-        else:
-            document_id = generate_doc_id(filepath)
-
-        if "etag" not in metadata:
-            metadata["document_id"] = document_id
-
         with self.track_time():
             media_type, media_bytes_per_page = self._render_pages(
                 filepath, pdf_bytes, metadata["num_pages"]

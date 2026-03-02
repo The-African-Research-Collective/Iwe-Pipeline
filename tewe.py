@@ -272,8 +272,8 @@ def run_ocr_extraction_pipeline(cfg: DictConfig) -> LocalPipelineExecutor:
                 metric_interval=100,
                 endpoint_url=cfg.ocr.server_url,
             ),
+            output_writer=JsonlWriter(output_folder=os.path.join(output_folder, "ocr_extracted"))
         ),
-        JsonlWriter(output_folder=os.path.join(output_folder, "ocr_extracted"))
     ]
 
     executor = LocalPipelineExecutor(

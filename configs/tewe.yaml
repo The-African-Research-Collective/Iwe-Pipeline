@@ -10,6 +10,14 @@ job_name: iwe_local
 executor:
   tasks: 1
   workers: 1
+  local_tasks: -1
+  local_rank_offset: 0
+
+pipeline_steps:
+  - dedup_ocr_classifier
+  - nocr_extraction
+  # - ocr_extraction
+  # - postprocess
 
 reader:
   input_dir: "???"

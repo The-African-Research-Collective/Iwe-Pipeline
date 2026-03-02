@@ -166,8 +166,13 @@ class PDFReader(BaseDiskReader):
                 source_document_metadata["num_pages"] = len(pikepdf.open(BytesIO(pdf_bytes)).pages)
             except Exception as e:
                 logger.warning(f"Failed to open PDF {filepath}: {e}. Yielding empty document.")
-                self.get_document_from_dict(
-                    {"text": " ", "metadata": {"source": source_document_metadata}},
+
+                # TODO: @theyorubayesian: Do we need an exclusion writer here?
+                yield self.get_document_from_dict(
+                    {
+                        "text": "<empty document>",
+                        "metadata": {"source": source_document_metadata, "error": str(e)},
+                    },
                     source_file=filepath,
                     id_in_file=document_id,
                 )

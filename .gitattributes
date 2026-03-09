@@ -1,0 +1,2 @@
+models/heron/heron_int8_quant.bin filter=lfs diff=lfs merge=lfs -text
+models/heron/heron_int8_quant.xml filter=lfs diff=lfs merge=lfs -text

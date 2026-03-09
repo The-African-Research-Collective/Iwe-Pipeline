@@ -1,11 +1,23 @@
 # Sample config for run_iwe_pipeline.py
-limit: 100
+hydra:
+  run:
+    dir: outputs/${job_name}/${now:%Y-%m-%d}/${now:%H-%M-%S}
+
+limit: -1
 monitor: false
 job_name: iwe_local
 
 executor:
   tasks: 1
   workers: 1
+  local_tasks: -1
+  local_rank_offset: 0
+
+pipeline_steps:
+  - dedup_ocr_classifier
+  - nocr_extraction
+  # - ocr_extraction
+  # - postprocess
 
 reader:
   input_dir: "???"
@@ -29,6 +41,9 @@ ocr:
   max_tokens: 2048
   checkpoints_local_dir: null
 
+classifiers:
+  ocr_classifier_model_path: "???"
+
 output:
   output_dir: "???"
   backend: local # local | azure
@@ -36,3 +51,10 @@ output:
 
   azure:
     container_path: az://mycontainer
+
+azure:
+  timeout: 3_600
+  read_timeout: 3_600
+  connection_timeout: 3_600
+  socket_timeout: 3_600
+  blocksize: 4_194_304
